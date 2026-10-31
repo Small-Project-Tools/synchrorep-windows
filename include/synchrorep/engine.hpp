@@ -26,11 +26,13 @@ struct Options {
  bool propagate_deletions = true;
  std::map<std::string,ConflictChoice> overrides;
  bool resume_interrupted = false;
- Options(ConflictPolicy policy=ConflictPolicy::Ask,bool deletions=true,std::map<std::string,ConflictChoice> per_file={},bool resume=false)
- : conflict(policy),propagate_deletions(deletions),overrides(std::move(per_file)),resume_interrupted(resume){}
+ bool preserve_changes = true;
+ Options(ConflictPolicy policy=ConflictPolicy::Ask,bool deletions=true,std::map<std::string,ConflictChoice> per_file={},bool resume=false,bool preserve=true)
+ : conflict(policy),propagate_deletions(deletions),overrides(std::move(per_file)),
+   resume_interrupted(resume),preserve_changes(preserve){}
 };
 struct Decision {std::string relative;Action action=Action::None;};
-struct Result {std::size_t copied=0,removed=0;std::vector<std::string> conflicts;};
+struct Result {std::size_t copied=0,removed=0,archived=0;std::vector<std::string> conflicts;};
 class Engine {
 public:
  explicit Engine(fs::path state,Options options={});

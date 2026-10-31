@@ -37,16 +37,18 @@ Les fichiers sont lus intégralement lors du calcul SHA-256. Une erreur de listi
 | Identifiants réseau | Champs et Windows Credential Manager |
 | Fenêtre de progression | Barre par phase et fichier, annulation entre fichiers |
 | Dialogue de conflits par fichier | Choix Keep left / Keep right / Skip dans la liste |
-| Déplacer les suppressions vers la corbeille | Non implémenté |
+| Deplacer les suppressions vers la corbeille | Archive de recuperation applicative avant toute operation destructive ; Corbeille Windows native non implementee |
 | Groupes de synchronisations | Non implémenté |
-| Fenêtres de logs et comportements expert | Non implémentées |
+| Fenetres de logs et comportements expert | Journaux JSONL disponibles ; ecran expert non implemente |
 | Extension native moderne Windows 11 | Non implémentée |
 
 ## Historique et récupération
 
 Le format `SYNCHROREP4` stocke pour chaque fichier les empreintes SHA-256 des deux extrémités. Les anciens formats `SYNCHROREP3` et SQLite GNOME ne sont pas interprétés : ils provoquent une erreur et nécessitent une migration contrôlée. L'historique est lié au couple ordonné d'emplacements.
 
-Les transferts sont préparés via des fichiers temporaires et vérifiés avant d'enregistrer le nouvel état. Cela **ne garantit pas une transaction** sur l'ensemble des fichiers : la corbeille, un journal de recuperation controlee et la reprise manuelle apres interruption et la gestion des modifications concurrentes complexes restent à développer.
+Les transferts sont préparés via des fichiers temporaires et vérifiés avant d'enregistrer le nouvel état. Cela **ne garantit pas une transaction** sur l'ensemble des fichiers : l'archivage des anciennes versions et le journal de reprise ne remplacent pas
+une transaction globale. La restauration automatique et les garanties contre
+toutes les modifications concurrentes restent a developper.
 
 ## Compilation et CI
 
@@ -71,3 +73,15 @@ Le moteur propose des callbacks de progression et d'annulation cooperative, des 
 Le moteur ecrit un journal des operations et impose une reprise explicite (option --resume). La reprise recalcule toutes les decisions avant de reprendre.
 
 Les fichiers de staging partiels laisses par un processus brutalement arrete sont detectes et bloquent la synchronisation au lieu d etre propages. Une inspection et un nettoyage manuel sont necessaires. Le journal ne remplace pas une transaction multi-fichiers.
+
+
+## Archives de recuperation (iteration 0.7)
+
+Chaque operation de suppression ou de remplacement preserve maintenant
+l'ancienne version, sauf desactivation explicite de l'option dans la fiche.
+Les anciennes versions sont verifiees par SHA-256, conservees dans un dossier
+local distinct et accompagnees d'un manifest. L'ancienne version d'un fichier
+distant est telechargee depuis FTP/SFTP avant l'operation destructive.
+Les journaux JSONL et les archives sont accessibles dans l'interface.
+Ce n'est pas la Corbeille native Windows, et une restauration reste manuelle.
+Voir [archives de recuperation](recovery-archive.md).

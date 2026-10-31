@@ -126,6 +126,60 @@ int main(){
   fs::last_write_time(hy/"file.txt",t_before);
   assert(delhash.run(hx,hy).conflicts.size()==1);
   assert(read(hy/"file.txt")=="2222");
+  // Protected overwrite stores the previous bytes before replacement.
+  auto protectedLeft=root/"protected-left",protectedRight=root/"protected-right";
+  fs::create_directories(protectedLeft);fs::create_directories(protectedRight);
+  auto protectedState=root/"state"/"protected.state";
+  Engine protectedEngine(protectedState);
+  write(protectedLeft/"nested"/"data.txt","OLD-ORIGINAL");
+  assert(protectedEngine.run(protectedLeft,protectedRight).copied>=1);
+  write(protectedLeft/"nested"/"data.txt","NEW-CONTENTS");
+  auto overwritten=protectedEngine.run(protectedLeft,protectedRight);
+  assert(overwritten.copied==1 && overwritten.archived==1);
+  assert(read(protectedRight/"nested"/"data.txt")=="NEW-CONTENTS");
+  auto recoveries=protectedState.parent_path()/"recovery"/protectedState.filename();
+  std::size_t backups=0;
+  for(const auto& item:fs::recursive_directory_iterator(recoveries)){
+   if(item.is_regular_file() && item.path().filename()=="data.txt"){
+    assert(read(item.path())=="OLD-ORIGINAL");
+    ++backups;
+   }
+  }
+  assert(backups==1);
+  // Removing a populated directory archives its file plus directory marker.
+  fs::remove_all(protectedLeft/"nested");
+  auto removed=protectedEngine.run(protectedLeft,protectedRight);
+  assert(removed.removed==2 && removed.archived==2);
+  assert(!fs::exists(protectedRight/"nested"));
+  backups=0;
+  for(const auto& item:fs::recursive_directory_iterator(recoveries))
+   if(item.is_regular_file() && item.path().filename()=="data.txt"){
+    const auto text=read(item.path());
+    assert(text=="OLD-ORIGINAL" || text=="NEW-CONTENTS");
+    ++backups;
+   }
+  assert(backups==2);
+  const auto eventLog=protectedState.parent_path()/"logs"/"protected.state.jsonl";
+  assert(fs::exists(eventLog));
+  const auto content=read(eventLog);
+  assert(content.find("\"event\":\"preserved\"")!=std::string::npos);
+  assert(content.find("\"event\":\"committed\"")!=std::string::npos);
+  // Recovery policy can be explicitly disabled: useful for disposable data.
+  auto optLeft=root/"opt-left",optRight=root/"opt-right";
+  fs::create_directories(optLeft);fs::create_directories(optRight);
+  auto optState=root/"state"/"without-backups.state";
+  Engine unprotected(optState,Options{ConflictPolicy::Ask,true,{},false,false});
+  write(optLeft/"record","before");
+  unprotected.run(optLeft,optRight);
+  write(optLeft/"record","after");
+  auto fast=unprotected.run(optLeft,optRight);
+  assert(fast.copied==1&&fast.archived==0);
+  assert(!fs::exists(optState.parent_path()/"recovery"/optState.filename()));
+  // Read-only scan never creates a recovery directory for its state.
+  auto noArchiveState=root/"state"/"preview-only.state";
+  Engine noArchive(noArchiveState);
+  assert(noArchive.plan(protectedLeft,protectedRight).empty());
+  assert(!fs::exists(noArchiveState.parent_path()/"recovery"/noArchiveState.filename()));
   // Previous history formats cannot be silently mistaken for SHA-256 state.
   write(root/"state"/"legacy.state","SYNCHROREP3\\n");
   assert(throws([&]{Engine(root/"state"/"legacy.state").plan(hz,hz2);}));
@@ -173,6 +227,9 @@ int main(){
   catch(const RunCancelled&){cancelled=true;}
   assert(cancelled&&!fs::exists(cancelState));
   assert(cancellable.has_pending_recovery());
+  auto cancelLog=root/"state"/"logs"/"cancel.state.jsonl";
+  assert(fs::exists(cancelLog));
+  assert(read(cancelLog).find("\"event\":\"cancelled\"")!=std::string::npos);
   assert(reported.size()>2);
   assert(fs::exists(cancelB/"a.txt")&&!fs::exists(cancelB/"b.txt"));
   assert(throws([&]{cancellable.run(cancelA,cancelB);}));

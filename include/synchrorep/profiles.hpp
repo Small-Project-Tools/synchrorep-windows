@@ -11,6 +11,7 @@ struct Profile {
  std::string known_hosts;
  ConflictPolicy conflict=ConflictPolicy::Ask;
  bool propagate_deletions=true;
+ bool preserve_changes=true;
 };
 class ProfileStore {
 public:

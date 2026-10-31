@@ -25,3 +25,18 @@ La synchronisation est maintenant lancee sur un thread de travail et la fenetre 
 ## Recuperation
 
 En cas de synchronisation interrompue, cocher Resume interrupted run apres examen de Preview pour autoriser une nouvelle analyse.
+
+
+## Versions conservees et journaux
+
+Une fiche de synchronisation contient maintenant la preference **Preserve old
+versions** (activee par defaut). Les fichiers remplaces ou supprimes sur les
+endpoints locaux, WSL, FTP ou SFTP sont sauvegardes dans l'archive locale avant
+leur modification. Les boutons **Open recovery archive** et **Open execution
+logs** ouvrent les emplacements locaux dans l'Explorateur.
+
+Les profils au format SYNCHROREP-PROFILES1 sont lus automatiquement en activant
+la protection ; toute nouvelle sauvegarde de profil utilise le format
+SYNCHROREP-PROFILES2.
+
+Voir [le guide de restauration](recovery-archive.md).

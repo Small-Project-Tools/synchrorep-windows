@@ -36,7 +36,18 @@ int main(){
   auto remote_t=fs::last_write_time(path/"local"/"alpha.txt");
   write(path/"local"/"alpha.txt","world");
   fs::last_write_time(path/"local"/"alpha.txt",remote_t);
-  assert(engine.run(local,remote).copied==1);
+  auto remoteOverwrite=engine.run(local,remote);
+  assert(remoteOverwrite.copied==1 && remoteOverwrite.archived==1);
+  // Before remote alpha.txt was overwritten, the old contents were downloaded
+  // into local recovery storage, with their expected SHA-256 verified.
+  auto archiveRoot=path/"recovery"/"history.txt";
+  bool archivedHello=false;
+  for(const auto& item:fs::recursive_directory_iterator(archiveRoot))
+   if(item.is_regular_file() && item.path().filename()=="alpha.txt"){
+    assert(read(item.path())=="hello");
+    archivedHello=true;
+   }
+  assert(archivedHello);
   assert(engine.run(local,remote).copied==0);
   std::istringstream data("REMOTE-DATA");
   Entry e{true,false,11,0,{}};
@@ -81,8 +92,14 @@ int main(){
   assert(engine.run(local,remote).copied==1);
   assert(read(path/"local"/"remote.txt")=="REMOTE-UPDATED");
   fs::remove(path/"local"/"alpha.txt");
-  assert(engine.run(local,remote).removed==1);
+  auto remoteRemoval=engine.run(local,remote);
+  assert(remoteRemoval.removed==1 && remoteRemoval.archived==1);
   assert(remote.scan().count("alpha.txt")==0);
+  bool archivedWorld=false;
+  for(const auto& item:fs::recursive_directory_iterator(archiveRoot))
+   if(item.is_regular_file() && item.path().filename()=="alpha.txt" && read(item.path())=="world")
+    archivedWorld=true;
+  assert(archivedWorld);
   fs::remove_all(path);
   std::cout<<"Remote integration tests passed for "<<remote.identity()<<"\n";
  }catch(...){fs::remove_all(path);throw;}

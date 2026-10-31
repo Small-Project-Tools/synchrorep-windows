@@ -1,5 +1,7 @@
 #include "synchrorep/engine.hpp"
 #include "synchrorep/sha256.hpp"
+#include "synchrorep/recovery_store.hpp"
+#include "synchrorep/run_log.hpp"
 #include <algorithm>
 #include <array>
 #include <fstream>
@@ -8,6 +10,9 @@
 #include <set>
 #include <stdexcept>
 #include <utility>
+#include <atomic>
+#include <chrono>
+#include <memory>
 #include <cerrno>
 #ifdef _WIN32
 #include <windows.h>
@@ -307,6 +312,19 @@ void transfer(Endpoint& from,Endpoint& to,const std::string& name,const Entry& i
  else{auto data=from.read(name);to.write(name,*data,info);}
 }
 void erase(Endpoint& endpoint,const std::string& name){endpoint.remove(name);}
+std::string unique_run_id(){
+ static std::atomic<unsigned long long> serial{0};
+ return std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())
+   +"-"+std::to_string(++serial);
+}
+void ensure_external(const fs::path& archive,const Endpoint& left,const Endpoint& right){
+ auto location=fs::weakly_canonical(archive);
+ for(const auto* endpoint:{&left,&right}){
+  auto local=dynamic_cast<const LocalEndpoint*>(endpoint);
+  if(local && is_nested(fs::weakly_canonical(local->root()),location))
+   throw std::runtime_error("Recovery archive must be outside synchronized roots");
+ }
+}
 }
 Engine::Engine(fs::path state,Options options):state_(std::move(state)),options_(options){}
 bool Engine::has_pending_recovery()const{
@@ -351,6 +369,25 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallback
  }
  begin_journal(journal,left,right,decisions);
  emit(callbacks,Phase::Journal,1,1);
+ // The log and recovery folder live beside the state, never inside a root.
+ auto state_parent=state_.parent_path();
+ if(state_parent.empty())state_parent=".";
+ auto recovery_root=state_parent/"recovery"/state_.filename()/unique_run_id();
+ if(options_.preserve_changes)ensure_external(recovery_root,left,right);
+ RunLog events(state_parent/"logs"/(state_.filename().string()+".jsonl"));
+ events.record("begin",{},left.identity()+" <-> "+right.identity());
+ std::unique_ptr<RecoveryStore> left_backup,right_backup;
+ auto preserve=[&](Endpoint& target,const std::string& name,const Entry& original,
+                   const std::string& reason,bool is_left){
+  if(!options_.preserve_changes||!original.exists)return;
+  auto& slot=is_left?left_backup:right_backup;
+  if(!slot)slot=std::make_unique<RecoveryStore>(recovery_root/(is_left?"left":"right"));
+  events.record("preserve-begin",name,reason);
+  slot->preserve(target,name,original,reason);
+  ++result.archived;
+  events.record("preserved",name,reason);
+ };
+ try {
  // No filesystem modifications until both scans and every conflict have
  // been evaluated. Conflicting entries are not committed to the history.
  std::size_t copied=0;
@@ -362,8 +399,14 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallback
   check_cancel(callbacks);
   const auto li=leftScan.find(d.relative),ri=rightScan.find(d.relative);
   switch(d.action){
-   case Action::CopyLeftToRight: transfer(left,right,d.relative,li->second);++result.copied;break;
-   case Action::CopyRightToLeft: transfer(right,left,d.relative,ri->second);++result.copied;break;
+   case Action::CopyLeftToRight:
+    if(ri!=rightScan.end())preserve(right,d.relative,ri->second,"overwrite-right",false);
+    events.record("copy-left-to-right",d.relative);
+    transfer(left,right,d.relative,li->second);++result.copied;break;
+   case Action::CopyRightToLeft:
+    if(li!=leftScan.end())preserve(left,d.relative,li->second,"overwrite-left",true);
+    events.record("copy-right-to-left",d.relative);
+    transfer(right,left,d.relative,ri->second);++result.copied;break;
    default:break;
   }
   if(d.action==Action::CopyLeftToRight||d.action==Action::CopyRightToLeft){
@@ -379,8 +422,20 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallback
  emit(callbacks,Phase::Delete,0,static_cast<std::size_t>(deletions));
  for(const auto& d:decisions) {
   check_cancel(callbacks);
-  if(d.action==Action::DeleteLeft){erase(left,d.relative);++result.removed;}
-  if(d.action==Action::DeleteRight){erase(right,d.relative);++result.removed;}
+  if(d.action==Action::DeleteLeft){
+   auto entry=leftScan.find(d.relative);
+   if(entry==leftScan.end())throw std::runtime_error("Deletion target vanished: "+d.relative);
+   preserve(left,d.relative,entry->second,"delete-left",true);
+   events.record("delete-left",d.relative);
+   erase(left,d.relative);++result.removed;
+  }
+  if(d.action==Action::DeleteRight){
+   auto entry=rightScan.find(d.relative);
+   if(entry==rightScan.end())throw std::runtime_error("Deletion target vanished: "+d.relative);
+   preserve(right,d.relative,entry->second,"delete-right",false);
+   events.record("delete-right",d.relative);
+   erase(right,d.relative);++result.removed;
+  }
   if(d.action==Action::DeleteRight||d.action==Action::DeleteLeft){
    journal_completed(journal,d.relative);
    emit(callbacks,Phase::Delete,++deleted,static_cast<std::size_t>(deletions),d.relative);
@@ -411,9 +466,19 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallback
  check_cancel(callbacks);
  emit(callbacks,Phase::Save,0,1);
  save(state_,state);
+ events.record("committed",{}, "copied="+std::to_string(result.copied)+
+  " deleted="+std::to_string(result.removed)+
+  " archived="+std::to_string(result.archived));
  if(!fs::remove(journal))throw std::runtime_error("Cannot finalize recovery journal");
  sync_parent(journal);
  emit(callbacks,Phase::Complete,1,1);
+ }catch(const RunCancelled&){
+  events.record("cancelled");
+  throw;
+ }catch(const std::exception& exception){
+  try{events.record("error",{},exception.what());}catch(const std::exception&){}
+  throw;
+ }
  return result;
 }
 Result Engine::run(const fs::path& left,const fs::path& right,bool dry_run,const RunCallbacks& callbacks){

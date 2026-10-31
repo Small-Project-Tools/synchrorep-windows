@@ -30,9 +30,10 @@ enum Control : int {
  IdRightUser=110,IdRightPassword=111,IdKnownHosts=112,
  IdRemember=113,IdLoadCredentials=114,IdPolicy=115,IdDeletes=116,
  IdPreview=117,IdExecute=118,IdChanges=119,IdExplorer=120,
- IdCancel=121,IdKeepLeft=122,IdKeepRight=123,IdSkip=124,IdProgress=125,IdStatus=126,IdResume=127
+ IdCancel=121,IdKeepLeft=122,IdKeepRight=123,IdSkip=124,IdProgress=125,IdStatus=126,IdResume=127,
+ IdProtect=128,IdOpenRecovery=129,IdOpenLogs=130
 };
-HWND controls[130]{};
+HWND controls[140]{};
 HWND mainWindow=nullptr;
 HFONT font=nullptr;
 std::vector<Profile> profiles;
@@ -148,6 +149,7 @@ void loadProfile(int index){
  set(IdKnownHosts,toWide(p.known_hosts));
  SendMessageW(controls[IdPolicy],CB_SETCURSEL,static_cast<WPARAM>(p.conflict),0);
  SendMessageW(controls[IdDeletes],BM_SETCHECK,p.propagate_deletions?BST_CHECKED:BST_UNCHECKED,0);
+ SendMessageW(controls[IdProtect],BM_SETCHECK,p.preserve_changes?BST_CHECKED:BST_UNCHECKED,0);
  SendMessageW(controls[IdChanges],LB_RESETCONTENT,0,0);
  clearCredentials();updateList();
 }
@@ -158,6 +160,7 @@ Profile fromForm(){
  const auto idx=SendMessageW(controls[IdPolicy],CB_GETCURSEL,0,0);
  p.conflict=idx>=0&&idx<=4?static_cast<ConflictPolicy>(idx):ConflictPolicy::Ask;
  p.propagate_deletions=SendMessageW(controls[IdDeletes],BM_GETCHECK,0,0)==BST_CHECKED;
+ p.preserve_changes=SendMessageW(controls[IdProtect],BM_GETCHECK,0,0)==BST_CHECKED;
  return p;
 }
 std::wstring credentialTargetForm(int uriId){return credentialTarget(toUtf8(get(uriId)));}
@@ -212,7 +215,7 @@ void setBusy(bool running){
  for(int id:{IdProfiles,IdNew,IdSave,IdDelete,IdName,IdLeft,IdRight,
   IdLeftUser,IdLeftPassword,IdRightUser,IdRightPassword,IdKnownHosts,
   IdRemember,IdLoadCredentials,IdPolicy,IdDeletes,IdPreview,IdExecute,
-  IdExplorer,IdKeepLeft,IdKeepRight,IdSkip,IdResume})
+  IdExplorer,IdKeepLeft,IdKeepRight,IdSkip,IdResume,IdProtect,IdOpenRecovery,IdOpenLogs})
    EnableWindow(controls[id],!running);
  EnableWindow(controls[IdCancel],running);
 }
@@ -248,7 +251,7 @@ void startSync(bool execute){
    auto b=endpointFrom(settings.profile.right,settings.rightUser,
                        settings.rightPassword,settings.profile.known_hosts);
    Options options{settings.profile.conflict,settings.profile.propagate_deletions,
-                   settings.overrides,settings.resume};
+                   settings.overrides,settings.resume,settings.profile.preserve_changes};
    Engine engine(statePath(*a,*b),std::move(options));
    result.decisions=engine.plan(*a,*b,callbacks);
    if(settings.execute){
@@ -325,6 +328,7 @@ void onFinished(std::unique_ptr<synchrorep::winui::FinishedEvent> result){
  }else if(result->executed){
   auto text=L"Copied: "+std::to_wstring(result->result.copied)+
             L"\nDeleted: "+std::to_wstring(result->result.removed)+
+            L"\nRecovery copies: "+std::to_wstring(result->result.archived)+
             L"\nConflicts: "+std::to_wstring(result->result.conflicts.size());
   set(IdStatus,L"Synchronization complete.");
   MessageBoxW(mainWindow,text.c_str(),L"Synchrorep",MB_OK|MB_ICONINFORMATION);
@@ -408,6 +412,15 @@ void onCommand(int id){
  }
  case IdExplorer:
   setExplorerMenu(SendMessageW(controls[IdExplorer],BM_GETCHECK,0,0)==BST_CHECKED);break;
+ case IdOpenRecovery:
+ case IdOpenLogs:{
+  auto folder=appDirectory()/(id==IdOpenRecovery?L"recovery":L"logs");
+  std::filesystem::create_directories(folder);
+  auto launched=reinterpret_cast<INT_PTR>(ShellExecuteW(mainWindow,L"open",
+    folder.c_str(),nullptr,nullptr,SW_SHOWNORMAL));
+  if(launched<=32)throw std::runtime_error("Cannot open Synchrorep storage directory");
+  break;
+ }
  case IdPreview:startSync(false);break;
  case IdExecute:startSync(true);break;
  case IdCancel:if(job)job->stop();set(IdStatus,L"Cancellation requested; waiting for current file.");break;
@@ -425,6 +438,11 @@ void initializeControls(HWND h){
  button(h,L"Delete",IdDelete,200,483,91);
  place(h,L"BUTTON",L"Explorer context menu",BS_AUTOCHECKBOX|WS_TABSTOP,18,534,270,24,IdExplorer);
  SendMessageW(controls[IdExplorer],BM_SETCHECK,explorerMenuInstalled()?BST_CHECKED:BST_UNCHECKED,0);
+ place(h,L"BUTTON",L"Preserve old versions",BS_AUTOCHECKBOX|WS_TABSTOP,
+       18,566,274,24,IdProtect);
+ SendMessageW(controls[IdProtect],BM_SETCHECK,BST_CHECKED,0);
+ button(h,L"Open recovery archive",IdOpenRecovery,18,603,274);
+ button(h,L"Open execution logs",IdOpenLogs,18,638,274);
 
  label(h,L"Profile name",320,16);
  edit(h,IdName,320,39,546);
