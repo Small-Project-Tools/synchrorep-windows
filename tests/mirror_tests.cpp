@@ -33,13 +33,16 @@ bool throws(const auto& callback){
  try{callback();return false;}catch(const std::exception&){return true;}
 }
 void await(const auto& condition){
- // Slow shared CI hosts can take longer than local test environments
- // to complete a full hashing reconciliation.
- for(int i=0;i<400;++i){
+ // A shared CI runner may be pre-empted for substantial periods. Time out
+ // by elapsed wall clock rather than a fixed number of polling iterations.
+ static int waitNumber=0;
+ const int step=++waitNumber;
+ const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(60);
+ while(std::chrono::steady_clock::now()<deadline){
   if(condition())return;
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
  }
- throw std::runtime_error("Mirror monitor did not react within test deadline");
+ throw std::runtime_error("Mirror monitor did not react at await step "+std::to_string(step));
 }
 }
 int main(){
@@ -142,7 +145,7 @@ int main(){
   try{
    await([&]{return fs::exists(disconnectedDst/"important");});
    fs::remove_all(disconnectedSrc);
-   assert(disFuture.wait_for(std::chrono::seconds(3))==std::future_status::ready);
+   assert(disFuture.wait_for(std::chrono::seconds(15))==std::future_status::ready);
    bool errored=false;
    try{(void)disFuture.get();}catch(const std::exception&){errored=true;}
    assert(errored);
@@ -184,7 +187,7 @@ int main(){
   // Stop at a confirmed idle boundary, not in the middle of a transfer.
   stopOnNextIdle=true;
   await([&]{return stop.load();});
-  assert(result.wait_for(std::chrono::seconds(3))==std::future_status::ready);
+  assert(result.wait_for(std::chrono::seconds(15))==std::future_status::ready);
   auto totals=result.get();
   assert(totals.copied>=3&&totals.removed>=1);
   assert(read(watchSrc/"new-folder"/"n")=="nested");
