@@ -9,7 +9,7 @@
          IgnorableNamespaces="uap uap10 com desktop4 desktop5 rescap">
   <!-- The Publisher must match the certificate used to sign the sparse MSIX. -->
   <Identity Name="Synchrorep.Windows" Publisher="CN=Synchrorep Development"
-            Version="0.10.0.0" ProcessorArchitecture="x64" />
+            Version="0.11.0.0" ProcessorArchitecture="x64" />
   <Properties>
     <DisplayName>Synchrorep</DisplayName>
     <PublisherDisplayName>Synchrorep contributors</PublisherDisplayName>

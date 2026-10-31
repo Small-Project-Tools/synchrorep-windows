@@ -23,6 +23,7 @@
 #include "synchrorep/profiles.hpp"
 #include "synchrorep/remote_endpoint.hpp"
 #include "synchrorep/sha256.hpp"
+#include "synchrorep/mirror_monitor.hpp"
 
 namespace {
 using namespace synchrorep;
@@ -33,7 +34,7 @@ enum Control : int {
  IdRemember=113,IdLoadCredentials=114,IdPolicy=115,IdDeletes=116,
  IdPreview=117,IdExecute=118,IdChanges=119,IdExplorer=120,
  IdCancel=121,IdKeepLeft=122,IdKeepRight=123,IdSkip=124,IdProgress=125,IdStatus=126,IdResume=127,
- IdProtect=128,IdOpenRecovery=129,IdOpenLogs=130,IdRecycle=131
+ IdProtect=128,IdOpenRecovery=129,IdOpenLogs=130,IdRecycle=131,IdMirror=132
 };
 HWND controls[140]{};
 HWND mainWindow=nullptr;
@@ -49,6 +50,37 @@ HWND recoveryWindow=nullptr;
 HWND recoveryList=nullptr;
 HWND recoveryInfo=nullptr;
 std::vector<RecoveryItem> recoveryRecords;
+constexpr UINT TrayMessage=WM_APP+100;
+constexpr UINT TrayId=5;
+bool trayAdded=false;
+bool activeMirror=false;
+void showMainWindow(){
+ ShowWindow(mainWindow,SW_RESTORE);
+ ShowWindow(mainWindow,SW_SHOW);
+ SetForegroundWindow(mainWindow);
+}
+void removeTray(){
+ if(!trayAdded)return;
+ NOTIFYICONDATAW info{};
+ info.cbSize=sizeof(info);
+ info.hWnd=mainWindow;
+ info.uID=TrayId;
+ Shell_NotifyIconW(NIM_DELETE,&info);
+ trayAdded=false;
+}
+void addTray(){
+ if(trayAdded)return;
+ NOTIFYICONDATAW info{};
+ info.cbSize=sizeof(info);
+ info.hWnd=mainWindow;
+ info.uID=TrayId;
+ info.uFlags=NIF_ICON|NIF_MESSAGE|NIF_TIP;
+ info.uCallbackMessage=TrayMessage;
+ info.hIcon=LoadIconW(nullptr,IDI_APPLICATION);
+ wcscpy_s(info.szTip,L"Synchrorep - Mirror monitoring active");
+ trayAdded=Shell_NotifyIconW(NIM_ADD,&info)!=FALSE;
+}
+
 
 struct JobSettings {
  Profile profile;
@@ -158,6 +190,7 @@ void loadProfile(int index){
  SendMessageW(controls[IdDeletes],BM_SETCHECK,p.propagate_deletions?BST_CHECKED:BST_UNCHECKED,0);
  SendMessageW(controls[IdProtect],BM_SETCHECK,p.preserve_changes?BST_CHECKED:BST_UNCHECKED,0);
  SendMessageW(controls[IdRecycle],BM_SETCHECK,p.recycle_local_deletions?BST_CHECKED:BST_UNCHECKED,0);
+ SendMessageW(controls[IdMirror],BM_SETCHECK,p.mode==SyncMode::Mirror?BST_CHECKED:BST_UNCHECKED,0);
  SendMessageW(controls[IdChanges],LB_RESETCONTENT,0,0);
  clearCredentials();updateList();
 }
@@ -170,6 +203,8 @@ Profile fromForm(){
  p.propagate_deletions=SendMessageW(controls[IdDeletes],BM_GETCHECK,0,0)==BST_CHECKED;
  p.preserve_changes=SendMessageW(controls[IdProtect],BM_GETCHECK,0,0)==BST_CHECKED;
  p.recycle_local_deletions=SendMessageW(controls[IdRecycle],BM_GETCHECK,0,0)==BST_CHECKED;
+ p.mode=SendMessageW(controls[IdMirror],BM_GETCHECK,0,0)==BST_CHECKED
+   ?SyncMode::Mirror:SyncMode::Bidirectional;
  return p;
 }
 std::wstring credentialTargetForm(int uriId){return credentialTarget(toUtf8(get(uriId)));}
@@ -224,7 +259,7 @@ void setBusy(bool running){
  for(int id:{IdProfiles,IdNew,IdSave,IdDelete,IdName,IdLeft,IdRight,
   IdLeftUser,IdLeftPassword,IdRightUser,IdRightPassword,IdKnownHosts,
   IdRemember,IdLoadCredentials,IdPolicy,IdDeletes,IdPreview,IdExecute,
-  IdExplorer,IdKeepLeft,IdKeepRight,IdSkip,IdResume,IdProtect,IdOpenRecovery,IdOpenLogs,IdRecycle})
+  IdExplorer,IdKeepLeft,IdKeepRight,IdSkip,IdResume,IdProtect,IdOpenRecovery,IdOpenLogs,IdRecycle,IdMirror})
    EnableWindow(controls[id],!running);
  EnableWindow(controls[IdCancel],running);
 }
@@ -233,6 +268,17 @@ JobSettings getJobSettings(bool execute){
  settings.profile=fromForm();
  if(settings.profile.left.empty()||settings.profile.right.empty())
   throw std::runtime_error("Both endpoints must be configured");
+ if(settings.profile.mode==SyncMode::Mirror){
+  if(endpoint_kind(settings.profile.left)!=EndpointKind::Local)
+   throw std::runtime_error("Mirror source must be a local Windows folder, not FTP/SFTP/WSL");
+#ifdef _WIN32
+  const auto directory=std::filesystem::path(toWide(settings.profile.left));
+  const auto native=std::filesystem::absolute(directory).native();
+  if(native.size()<3||native[1]!=L':'||
+     (native[2]!=L'\\'&&native[2]!=L'/'))
+   throw std::runtime_error("Mirror source must be a local drive, not a network share");
+#endif
+ }
  settings.leftUser=toUtf8(get(IdLeftUser));
  settings.leftPassword=toUtf8(get(IdLeftPassword));
  settings.rightUser=toUtf8(get(IdRightUser));
@@ -246,12 +292,17 @@ void startSync(bool execute){
  if(busy)return;
  auto settings=getJobSettings(execute);
  if(execute&&MessageBoxW(mainWindow,
-   L"Local fixed-drive deletions can use the Windows Recycle Bin. WSL/UNC and FTP/SFTP may permanently delete originals after recovery archiving (if enabled). Review Preview first. Continue?",
+   settings.profile.mode==SyncMode::Mirror
+    ?L"MIRROR MODE: the local folder is authoritative. Extra target files are deleted and target edits overwritten on each reconciliation. Backups are enabled by default. Start continuous monitoring?"
+    :L"Local fixed-drive deletions can use the Windows Recycle Bin. WSL/UNC and FTP/SFTP may permanently delete originals after recovery archiving (if enabled). Review Preview first. Continue?",
    L"Confirm synchronization",MB_YESNO|MB_ICONWARNING|MB_DEFBUTTON2)!=IDYES)return;
  if(!job)job=std::make_unique<synchrorep::winui::AsyncJob>(mainWindow);
  SendMessageW(controls[IdProgress],PBM_SETPOS,0,0);
  set(IdStatus,L"Starting...");
  setBusy(true);
+ const bool mirrorMode=settings.profile.mode==SyncMode::Mirror&&execute;
+ activeMirror=mirrorMode;
+ if(activeMirror)addTray();
  try{
   job->start([settings=std::move(settings)](const RunCallbacks& callbacks){
    synchrorep::winui::FinishedEvent result;
@@ -261,7 +312,7 @@ void startSync(bool execute){
                        settings.rightPassword,settings.profile.known_hosts);
    Options options{settings.profile.conflict,settings.profile.propagate_deletions,
                    settings.overrides,settings.resume,settings.profile.preserve_changes,
-                    settings.profile.recycle_local_deletions};
+                    settings.profile.recycle_local_deletions,settings.profile.mode};
    Engine engine(statePath(*a,*b),std::move(options));
    result.decisions=engine.plan(*a,*b,callbacks);
    if(settings.execute){
@@ -276,7 +327,12 @@ void startSync(bool execute){
    }
    return result;
   });
- }catch(...){setBusy(false);throw;}
+ }catch(...){
+  activeMirror=false;
+  removeTray();
+  setBusy(false);
+  throw;
+ }
 }
 void chooseConflict(ConflictChoice choice){
  if(busy)return;
@@ -310,6 +366,7 @@ std::wstring phaseName(Phase phase){
  case Phase::Journal:return L"Write recovery journal";
  case Phase::Save:return L"Save history";
  case Phase::Complete:return L"Complete";
+ case Phase::Watch:return L"Mirror active - watching source";
  }
  return L"Processing";
 }
@@ -326,6 +383,10 @@ void onProgress(std::unique_ptr<synchrorep::winui::ProgressEvent> event){
 }
 void onFinished(std::unique_ptr<synchrorep::winui::FinishedEvent> result){
  if(job)job->join();
+ const bool wasMirror=activeMirror;
+ activeMirror=false;
+ removeTray();
+ if(wasMirror&&!IsWindowVisible(mainWindow))showMainWindow();
  setBusy(false);
  showPlan(result->decisions);
  if(result->cancelled){
@@ -341,7 +402,7 @@ void onFinished(std::unique_ptr<synchrorep::winui::FinishedEvent> result){
             L"\nRecovery copies: "+std::to_wstring(result->result.archived)+
             L"\nRecycled: "+std::to_wstring(result->result.recycled)+
             L"\nConflicts: "+std::to_wstring(result->result.conflicts.size());
-  set(IdStatus,L"Synchronization complete.");
+  set(IdStatus,wasMirror?L"Continuous mirror stopped.":L"Synchronization complete.");
   MessageBoxW(mainWindow,text.c_str(),L"Synchrorep",MB_OK|MB_ICONINFORMATION);
  }else set(IdStatus,L"Preview complete. Select a conflict to choose its resolution.");
 }
@@ -580,6 +641,10 @@ void initializeControls(HWND h){
  SendMessageW(controls[IdRecycle],BM_SETCHECK,BST_CHECKED,0);
  button(h,L"Browse / restore archives",IdOpenRecovery,18,637,274);
  button(h,L"Open execution logs",IdOpenLogs,18,675,274);
+ place(h,L"BUTTON",L"Continuous local -> target mirror",BS_AUTOCHECKBOX|WS_TABSTOP,
+       18,716,274,24,IdMirror);
+ SendMessageW(controls[IdMirror],BM_SETCHECK,BST_UNCHECKED,0);
+ label(h,L"Stops when application closes",18,744,270);
 
  label(h,L"Profile name",320,16);
  edit(h,IdName,320,39,546);
@@ -640,7 +705,42 @@ LRESULT CALLBACK windowProc(HWND window,UINT message,WPARAM w,LPARAM l){
   onFinished(std::unique_ptr<synchrorep::winui::FinishedEvent>(
    reinterpret_cast<synchrorep::winui::FinishedEvent*>(l)));
   return 0;
+ case WM_CLOSE:
+  if(activeMirror&&busy&&trayAdded){
+   ShowWindow(window,SW_HIDE);
+   return 0;
+  }
+  DestroyWindow(window);
+  return 0;
+ case WM_SYSCOMMAND:
+  if((w&0xfff0)==SC_MINIMIZE && activeMirror&&busy&&trayAdded){
+   ShowWindow(window,SW_HIDE);
+   return 0;
+  }
+  return DefWindowProcW(window,message,w,l);
+ case TrayMessage:{
+  if(l==WM_LBUTTONDBLCLK){showMainWindow();return 0;}
+  if(l==WM_RBUTTONUP){
+   HMENU menu=CreatePopupMenu();
+   if(!menu)return 0;
+   AppendMenuW(menu,MF_STRING,901,L"Show Synchrorep");
+   AppendMenuW(menu,MF_STRING,902,L"Stop continuous mirror");
+   AppendMenuW(menu,MF_SEPARATOR,0,nullptr);
+   AppendMenuW(menu,MF_STRING,903,L"Exit Synchrorep");
+   POINT cursor{};GetCursorPos(&cursor);
+   SetForegroundWindow(window);
+   const auto action=TrackPopupMenu(menu,TPM_RIGHTBUTTON|TPM_RETURNCMD|TPM_NONOTIFY,
+                                    cursor.x,cursor.y,0,window,nullptr);
+   DestroyMenu(menu);
+   if(action==901)showMainWindow();
+   if(action==902&&job)job->stop();
+   if(action==903)DestroyWindow(window);
+   return 0;
+  }
+  return 0;
+ }
  case WM_DESTROY: {
+  removeTray();
   if(job){job->stop();job->join();}
   MSG pending;
   while(PeekMessageW(&pending,window,synchrorep::winui::ProgressMessage,

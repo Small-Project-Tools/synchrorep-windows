@@ -254,6 +254,33 @@ Action compare(const Entry& l,const Entry& r,const Pair& old,
  if(r.exists)return Action::CopyRightToLeft;
  return options.propagate_deletions?Action::DeleteLeft:Action::CopyLeftToRight;
 }
+std::vector<Decision> mirror_decisions(const Snapshot& source,const Snapshot& target,
+                                      const History& old,const Options& options){
+ // Fail closed if a newly configured/empty source would wipe an existing target.
+ // Deliberately deleting the last source file is allowed only after a prior
+ // successful mirror with at least one source entry in the history.
+ bool previously_nonempty=false;
+ for(const auto& [_,pair]:old)if(pair.left.exists){previously_nonempty=true;break;}
+ if(source.empty()&&!target.empty()&&options.propagate_deletions&&!previously_nonempty)
+  throw std::runtime_error("Mirror source is empty and has no established history; refusing target deletion");
+ std::set<std::string> paths;
+ for(const auto& [name,_]:source)paths.insert(name);
+ for(const auto& [name,_]:target)paths.insert(name);
+ std::vector<Decision> result;
+ for(const auto& name:paths){
+  const auto a=source.find(name),b=target.find(name);
+  if(a==source.end()){
+   result.push_back({name,options.propagate_deletions?Action::DeleteRight:Action::None});
+  }else if(b==target.end()){
+   result.push_back({name,Action::CopyLeftToRight});
+  }else if(a->second.directory!=b->second.directory){
+   result.push_back({name,Action::Conflict}); // require explicit manual resolution
+  }else{
+   result.push_back({name,same(a->second,b->second)?Action::None:Action::CopyLeftToRight});
+  }
+ }
+ return result;
+}
 std::vector<Decision> build(const Snapshot& l,const Snapshot& r,
                             const History& old,const Options& options) {
  std::set<std::string> names;
@@ -344,7 +371,14 @@ std::vector<Decision> Engine::plan(const Endpoint& left,const Endpoint& right,co
  ensure_distinct(left,right,state_);
  CancellationBinding binding(left,right,callbacks);
  auto state=load(state_,left,right);
- return build(scan_hashed(left,callbacks,Phase::ScanLeft),scan_hashed(right,callbacks,Phase::ScanRight),state.history,options_);
+ auto l=scan_hashed(left,callbacks,Phase::ScanLeft);
+ auto r=scan_hashed(right,callbacks,Phase::ScanRight);
+ if(options_.mode==SyncMode::Mirror){
+  if(!dynamic_cast<const LocalEndpoint*>(&left))
+   throw std::runtime_error("Mirror source must be a local directory");
+  return mirror_decisions(l,r,state.history,options_);
+ }
+ return build(l,r,state.history,options_);
 }
 std::vector<Decision> Engine::plan(const fs::path& left,const fs::path& right,const RunCallbacks& callbacks)const{
  LocalEndpoint l(left),r(right);return plan(l,r,callbacks);
@@ -360,12 +394,22 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallback
    throw std::runtime_error("Previous run interrupted; review the preview and explicitly enable recovery");
  }
  const auto leftScan=scan_hashed(left,callbacks,Phase::ScanLeft),rightScan=scan_hashed(right,callbacks,Phase::ScanRight);
- auto decisions=build(leftScan,rightScan,state.history,options_);
+ if(options_.mode==SyncMode::Mirror&&!dynamic_cast<const LocalEndpoint*>(&left))
+  throw std::runtime_error("Mirror source must be local");
+ auto decisions=options_.mode==SyncMode::Mirror
+   ?mirror_decisions(leftScan,rightScan,state.history,options_)
+   :build(leftScan,rightScan,state.history,options_);
  Result result;
  for(const auto& decision:decisions)
   if(decision.action==Action::Conflict)result.conflicts.push_back(decision.relative);
  if(dry_run)return result;
- if(!result.conflicts.empty() && options_.conflict!=ConflictPolicy::Ignore)return result;
+ // Skip empty reconciliation cycles without creating new journals or archives.
+ if(options_.mode==SyncMode::Mirror && fs::exists(state_) &&
+    std::all_of(decisions.begin(),decisions.end(),[](const Decision& d){return d.action==Action::None;}))
+  return result;
+ if(!result.conflicts.empty() &&
+    (options_.mode==SyncMode::Mirror||options_.conflict!=ConflictPolicy::Ignore))
+  return result;
  check_cancel(callbacks);
  emit(callbacks,Phase::Journal,0,1);
  // A previous log is removed ONLY after validating the pair and explicit consent.

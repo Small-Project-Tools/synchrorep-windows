@@ -13,6 +13,7 @@ struct Profile {
  bool propagate_deletions=true;
  bool preserve_changes=true;
  bool recycle_local_deletions=true;
+ SyncMode mode=SyncMode::Bidirectional;
 };
 class ProfileStore {
 public:

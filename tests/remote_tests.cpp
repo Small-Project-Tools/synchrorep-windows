@@ -100,6 +100,37 @@ int main(){
    if(item.is_regular_file() && item.path().filename()=="alpha.txt" && read(item.path())=="world")
     archivedWorld=true;
   assert(archivedWorld);
+  // Mirror mode: remote target is authoritative only as a destination.
+  auto mirrorLocal=path/"mirror-source";
+  fs::create_directories(mirrorLocal);
+  write(mirrorLocal/"mirror.txt","LOCAL-MIRROR");
+  LocalEndpoint mirrorSource(mirrorLocal);
+  Options mirrorOptions;
+  mirrorOptions.mode=SyncMode::Mirror;
+  Engine mirrorEngine(path/"mirror-history",mirrorOptions);
+  auto mirrorFirst=mirrorEngine.run(mirrorSource,remote);
+  assert(mirrorFirst.copied==1 && mirrorFirst.removed>=1);
+  assert(remote.scan().count("mirror.txt")==1);
+  assert(!fs::exists(mirrorLocal/"remote.txt"));
+  assert(!fs::exists(mirrorLocal/"nested"));
+  std::istringstream external("EXTERNAL");
+  remote.write("mirror.txt",external,Entry{true,false,8,0,{}});
+  assert(mirrorEngine.run(mirrorSource,remote).copied==1);
+  assert(read(mirrorLocal/"mirror.txt")=="LOCAL-MIRROR");
+  write(mirrorLocal/"mirror.txt","LOCAL-UPDATED");
+  assert(mirrorEngine.run(mirrorSource,remote).copied==1);
+  auto listed=remote.scan();
+  assert(listed.at("mirror.txt").size==13);
+  // Remote-only files are purged, never copied back.
+  std::istringstream stray("STRAY");
+  remote.write("stray.txt",stray,Entry{true,false,5,0,{}});
+  auto mirrored=mirrorEngine.run(mirrorSource,remote);
+  assert(mirrored.removed==1);
+  assert(!fs::exists(mirrorLocal/"stray.txt"));
+  assert(remote.scan().count("stray.txt")==0);
+  fs::remove(mirrorLocal/"mirror.txt");
+  assert(mirrorEngine.run(mirrorSource,remote).removed==1);
+  assert(remote.scan().empty());
   fs::remove_all(path);
   std::cout<<"Remote integration tests passed for "<<remote.identity()<<"\n";
  }catch(...){fs::remove_all(path);throw;}

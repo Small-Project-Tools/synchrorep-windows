@@ -71,3 +71,11 @@ classique. Elle nécessite un MSIX sparse signé et installé ; ni la simple
 DLL ni l’installeur MSI seul ne suffisent. Les sources, le manifeste, les
 assets et les tests de contrats sont disponibles dans le projet.
 Voir [le guide Windows 11](windows11-explorer.md).
+
+
+## Mode miroir continu (0.11)
+
+La case Continuous local -> target mirror active un suivi source locale vers
+cible uniquement, y compris cible WSL, FTP et SFTP. Les profils precedents
+restent bidirectionnels. La surveillance continue lorsque la fenetre est
+masquee en zone de notification. Voir [mode miroir](mirror-mode.md).

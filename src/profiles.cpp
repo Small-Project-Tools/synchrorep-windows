@@ -11,24 +11,27 @@ std::vector<Profile> ProfileStore::load() const {
  std::string header;std::getline(in,header);
  const bool previous=header=="SYNCHROREP-PROFILES1";
  const bool second=header=="SYNCHROREP-PROFILES2";
- if(!previous&&!second&&header!="SYNCHROREP-PROFILES3")
+ const bool third=header=="SYNCHROREP-PROFILES3";
+ if(!previous&&!second&&!third&&header!="SYNCHROREP-PROFILES4")
   throw std::runtime_error("Unsupported profiles file");
  std::vector<Profile> profiles;std::set<std::string> names;
  while(in>>std::ws&&!in.eof()){
-  Profile profile;int policy=0,deletions=0,preserve=1,recycle=1;
+  Profile profile;int policy=0,deletions=0,preserve=1,recycle=1,mode=0;
   if(!(in>>std::quoted(profile.name)>>std::quoted(profile.left)>>std::quoted(profile.right)
      >>std::quoted(profile.known_hosts)>>policy>>deletions))
    throw std::runtime_error("Malformed profiles file");
   if(!previous && !(in>>preserve))throw std::runtime_error("Missing backup policy in profile");
   if(!previous&&!second && !(in>>recycle))throw std::runtime_error("Missing recycle policy in profile");
+  if(!previous&&!second&&!third && !(in>>mode))throw std::runtime_error("Missing sync mode in profile");
   if(profile.name.empty()||profile.left.empty()||profile.right.empty()||
-      profile.name.size()>500||policy<0||policy>4||(deletions!=0&&deletions!=1)||(preserve!=0&&preserve!=1)||(recycle!=0&&recycle!=1)||
+      profile.name.size()>500||policy<0||policy>4||(deletions!=0&&deletions!=1)||(preserve!=0&&preserve!=1)||(recycle!=0&&recycle!=1)||(mode!=0&&mode!=1)||
       !names.insert(profile.name).second)
    throw std::runtime_error("Invalid or duplicate synchronization profile");
   profile.conflict=static_cast<ConflictPolicy>(policy);
   profile.propagate_deletions=deletions!=0;
   profile.preserve_changes=preserve!=0;
   profile.recycle_local_deletions=recycle!=0;
+  profile.mode=static_cast<SyncMode>(mode);
   profiles.push_back(std::move(profile));
   if(profiles.size()>1000)throw std::runtime_error("Too many profiles");
  }
@@ -48,12 +51,13 @@ void ProfileStore::save(const std::vector<Profile>& profiles) const {
  {
   std::ofstream out(tmp,std::ios::binary|std::ios::trunc);
   if(!out)throw std::runtime_error("Cannot create profile file");
-  out<<"SYNCHROREP-PROFILES3\n";
+  out<<"SYNCHROREP-PROFILES4\n";
   for(const auto& p:profiles)
    out<<std::quoted(p.name)<<' '<<std::quoted(p.left)<<' '
       <<std::quoted(p.right)<<' '<<std::quoted(p.known_hosts)<<' '
       <<static_cast<int>(p.conflict)<<' '<<p.propagate_deletions<<' '
-      <<p.preserve_changes<<' '<<p.recycle_local_deletions<<'\n';
+      <<p.preserve_changes<<' '<<p.recycle_local_deletions<<' '
+      <<static_cast<int>(p.mode)<<'\n';
   out.flush();if(!out)throw std::runtime_error("Cannot write profiles");
  }
  std::error_code ec;

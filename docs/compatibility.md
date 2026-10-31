@@ -115,3 +115,12 @@ réel exige une signature de package, une identité Windows et un test sous
 Windows 11. Le menu classique reste disponible. Le MSI embarque maintenant
 la DLL, mais ne suffit pas à inscrire l’extension dans le menu moderne.
 Voir [installation Windows 11](windows11-explorer.md).
+
+
+## Mode miroir unidirectionnel continu (0.11)
+
+SyncMode::Mirror ne genere jamais de copie cible -> source. Il compare la
+source locale et la cible, surveille les changements locaux et refait
+periodiquement une comparaison SHA-256 complete. Un scan source impossible
+stoppe la surveillance. Le format de profil V4 enregistre ce choix,
+les formats V1-V3 restant bidirectionnels. Voir [guide](mirror-mode.md).

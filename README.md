@@ -171,3 +171,24 @@ préparé par le job manuel est non signé. Consulter
 
 Les tests et la compilation MSVC natifs, la signature MSIX et l’installation
 réelle sous Windows 11 restent nécessaires avant diffusion publique.
+
+
+## Mode miroir monodirectionnel continu (0.11)
+
+Choisir un dossier local source a gauche et une cible locale, WSL, FTP ou
+SFTP a droite. Cocher Continuous local -> target mirror, enregistrer le
+profil, utiliser Preview puis Synchronize. Les changements de la source
+sont recopies vers la cible automatiquement; aucune modification de la
+cible ne remonte vers la source.
+
+La surveillance locale se fait toutes les 500 ms, avec verification
+SHA-256 complete au maximum toutes les 60 secondes. Les suppressions
+autorisées se repercutent sur la cible et les anciennes versions sont
+archivees selon les preferences de protection.
+
+Sous Windows, fermer ou reduire la fenetre pendant le miroir la masque
+dans la zone de notification, sans stopper la surveillance. Le menu
+de l'icone permet de rouvrir l'application, stopper le miroir ou quitter.
+Le redemarrage automatique a la connexion Windows n'est pas encore implemente.
+
+Documentation: [mode miroir](docs/mirror-mode.md).
