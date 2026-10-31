@@ -1,5 +1,8 @@
 #include "synchrorep/engine.hpp"
 #include <cassert>
+#include <algorithm>
+#include <map>
+#include <vector>
 #include <chrono>
 #include <fstream>
 #include <iostream>
@@ -126,6 +129,75 @@ int main(){
   // Previous history formats cannot be silently mistaken for SHA-256 state.
   write(root/"state"/"legacy.state","SYNCHROREP3\\n");
   assert(throws([&]{Engine(root/"state"/"legacy.state").plan(hz,hz2);}));
+  // Resolve different simultaneous edits with explicit per-file choices.
+  auto cl=root/"cl",cr=root/"cr";fs::create_directories(cl);fs::create_directories(cr);
+  Engine first(root/"state"/"resolution.state");
+  write(cl/"left.txt","base");write(cl/"right.txt","base");
+  write(cl/"skip.txt","base");write(cl/"deleted.txt","base");
+  assert(first.run(cl,cr).copied==4);
+  write(cl/"left.txt","LEFT");write(cr/"left.txt","RIGHT");
+  write(cl/"right.txt","LEFT");write(cr/"right.txt","RIGHT");
+  write(cl/"skip.txt","LEFT");write(cr/"skip.txt","RIGHT");
+  fs::remove(cl/"deleted.txt");write(cr/"deleted.txt","changed");
+  std::map<std::string,ConflictChoice> chosen{{"left.txt",ConflictChoice::KeepLeft},
+   {"right.txt",ConflictChoice::KeepRight},{"skip.txt",ConflictChoice::Skip},
+   {"deleted.txt",ConflictChoice::KeepLeft}};
+  Engine resolved(root/"state"/"resolution.state",Options{ConflictPolicy::Ask,true,chosen});
+  auto planned=resolved.plan(cl,cr);
+  assert(std::none_of(planned.begin(),planned.end(),[](const Decision& d){return d.action==Action::Conflict;}));
+  auto applied=resolved.run(cl,cr);
+  assert(applied.conflicts.empty()&&applied.copied==2&&applied.removed==1);
+  assert(read(cr/"left.txt")=="LEFT");
+  assert(read(cl/"right.txt")=="RIGHT");
+  assert(read(cr/"skip.txt")=="RIGHT"&&read(cl/"skip.txt")=="LEFT");
+  assert(!fs::exists(cr/"deleted.txt"));
+  assert(first.run(cl,cr).conflicts.size()==1); // skipped file remained unresolved
+
+  // Progress and cancellation: stop after the first complete file,
+  // leaving state unchanged so the next run can reconcile safely.
+  auto cancelA=root/"cancelA",cancelB=root/"cancelB";
+  fs::create_directories(cancelA);fs::create_directories(cancelB);
+  write(cancelA/"a.txt","one");write(cancelA/"b.txt","two");
+  auto cancelState=root/"state"/"cancel.state";
+  Engine cancellable(cancelState);
+  bool stop=false;
+  std::vector<Progress> reported;
+  RunCallbacks callbacks;
+  callbacks.cancelled=[&]{return stop;};
+  callbacks.progress=[&](const Progress& p){
+   reported.push_back(p);
+   if(p.phase==Phase::Copy&&p.completed==1)stop=true;
+  };
+  bool cancelled=false;
+  try{cancellable.run(cancelA,cancelB,false,callbacks);}
+  catch(const RunCancelled&){cancelled=true;}
+  assert(cancelled&&!fs::exists(cancelState));
+  assert(reported.size()>2);
+  assert(fs::exists(cancelB/"a.txt")&&!fs::exists(cancelB/"b.txt"));
+  assert(cancellable.run(cancelA,cancelB).conflicts.empty());
+  assert(read(cancelB/"b.txt")=="two");
+
+  // Cancellation during a scan never copies anything and never updates state.
+  auto scanL=root/"scan-cancel-l",scanR=root/"scan-cancel-r";
+  fs::create_directories(scanL);fs::create_directories(scanR);
+  write(scanL/"a","first");write(scanL/"b","second");
+  Engine scanEngine(root/"state"/"scan-cancel.state");
+  bool stopScan=false;
+  RunCallbacks scanCallbacks{
+   [&]{return stopScan;},
+   [&](const Progress& p){if(p.phase==Phase::ScanLeft&&p.completed==1)stopScan=true;}
+  };
+  assert(throws([&]{scanEngine.run(scanL,scanR,false,scanCallbacks);}));
+  assert(!fs::exists(scanR/"a"));
+  assert(!fs::exists(root/"state"/"scan-cancel.state"));
+  // An explicitly skipped conflict is not learned into history.
+  auto explicitSkip=resolved.plan(cl,cr);
+  assert(std::none_of(explicitSkip.begin(),explicitSkip.end(),[](const Decision& d){
+   return d.action==Action::Conflict;
+  }));
+  assert(std::any_of(explicitSkip.begin(),explicitSkip.end(),[](const Decision& d){
+   return d.action==Action::Skip;
+  }));
   // A malformed history or a symlink in the tree must fail closed.
   write(root/"state"/"bad.state","INVALID-HEADER\n");
   assert(throws([&]{Engine(root/"state"/"bad.state").run(u,v);}));

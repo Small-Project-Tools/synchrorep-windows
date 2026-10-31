@@ -35,8 +35,8 @@ Les fichiers sont lus intégralement lors du calcul SHA-256. Une erreur de listi
 | Préférences générales | Politique conflits et suppressions |
 | Menu contextuel Nautilus | Menu classique Explorateur installable par utilisateur |
 | Identifiants réseau | Champs et Windows Credential Manager |
-| Fenêtre de progression | Non implémentée |
-| Dialogue de conflits par fichier | Liste de conflits ; politique globale |
+| Fenêtre de progression | Barre par phase et fichier, annulation entre fichiers |
+| Dialogue de conflits par fichier | Choix Keep left / Keep right / Skip dans la liste |
 | Déplacer les suppressions vers la corbeille | Non implémenté |
 | Groupes de synchronisations | Non implémenté |
 | Fenêtres de logs et comportements expert | Non implémentées |
@@ -61,3 +61,7 @@ Les transferts sont préparés via des fichiers temporaires et vérifiés avant 
 3. Optimisation du calcul de hash distant (sans faux négatifs).
 4. Dialogues de conflits par fichier, corbeille, logs, progression et groupes.
 5. IExplorerCommand natif et MSI.
+
+### Execution
+
+Le moteur propose des callbacks de progression et d'annulation cooperative, des resolutions individuelles et une conservation de l'historique precedent lors d'une interruption. Voir docs/execution.md.

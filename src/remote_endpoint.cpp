@@ -99,7 +99,7 @@ FTPItem parse_ftp_line(const std::string& line){
  }
  if(type=="cdir"||type=="pdir")return {".",{}};
  if(type!="file"&&type!="dir")throw std::runtime_error("Unsupported FTP entry type (possibly symlink): "+name);
- Entry e{true,type=="dir",size,0};
+ Entry e{true,type=="dir",size,0,{}};
  if(!e.directory){
   if(!size_found||modify.empty())throw std::runtime_error("FTP MLSD file missing size/modify facts: "+name);
   e.modified=parse_ftp_time(modify);

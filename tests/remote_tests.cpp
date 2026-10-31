@@ -1,6 +1,8 @@
 #include "synchrorep/engine.hpp"
 #include "synchrorep/remote_endpoint.hpp"
 #include <cassert>
+#include <algorithm>
+#include <vector>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -21,8 +23,12 @@ int main(){
   RemoteEndpoint remote(url,credentials);
   LocalEndpoint local(path/"local");
   Engine engine(path/"history.txt");
+  std::vector<Progress> states;
+  RunCallbacks track{[]{return false;},[&](const Progress& p){states.push_back(p);}};
   write(path/"local"/"alpha.txt","hello");
-  auto first=engine.run(local,remote);assert(first.conflicts.empty()&&first.copied==1);
+  auto first=engine.run(local,remote,false,track);assert(first.conflicts.empty()&&first.copied==1);
+  assert(std::any_of(states.begin(),states.end(),[](const Progress& p){return p.phase==Phase::Copy&&p.completed==1;}));
+  assert(std::any_of(states.begin(),states.end(),[](const Progress& p){return p.phase==Phase::Complete;}));
   auto snapshot=remote.scan();assert(snapshot.count("alpha.txt")==1);
   assert(snapshot.at("alpha.txt").size==5);
   assert(engine.run(local,remote).copied==0);

@@ -73,3 +73,7 @@ Voir [état de compatibilité](docs/compatibility.md) et [interface Windows](doc
 ## Licence
 
 Licence originale GPL-3.0 conservée dans [LICENSE](LICENSE). Les notices de licences des dépendances restent applicables.
+
+## Execution asynchrone et annulation
+
+L'interface Win32 lance l'analyse et les copies dans un thread de travail. Elle affiche la phase, le compteur et le chemin du fichier courant. La liste des conflits permet de choisir Keep left, Keep right ou Skip file. La demande d'annulation est appliquee entre deux fichiers, pas pendant un transfert distant en cours. Voir [execution et limites](docs/execution.md).

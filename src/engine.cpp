@@ -25,14 +25,27 @@ bool same(const Entry& a,const Entry& b){
  if(!a.hash.empty()&&!b.hash.empty())return a.hash==b.hash;
  return a.modified==b.modified;
 }
-Snapshot scan_hashed(const Endpoint& endpoint){
+void check_cancel(const RunCallbacks& callbacks){
+ if(callbacks.cancelled && callbacks.cancelled())throw RunCancelled();
+}
+void emit(const RunCallbacks& callbacks,Phase phase,std::size_t done,std::size_t total,const std::string& name={}){
+ if(callbacks.progress)callbacks.progress(Progress{phase,done,total,name});
+}
+Snapshot scan_hashed(const Endpoint& endpoint,const RunCallbacks& callbacks,Phase phase){
+ check_cancel(callbacks);
  auto entries=endpoint.scan();
+ std::size_t done=0;
+ emit(callbacks,phase,0,entries.size());
  for(auto& [name,info]:entries){
+  check_cancel(callbacks);
   if(info.exists&&!info.directory){
    auto stream=endpoint.read(name);
    info.hash=sha256(*stream,info.size);
   }
+  ++done;
+  emit(callbacks,phase,done,entries.size(),name);
  }
+ check_cancel(callbacks);
  return entries;
 }
 State load(const fs::path& file,const Endpoint& left,const Endpoint& right) {
@@ -136,7 +149,28 @@ std::vector<Decision> build(const Snapshot& l,const Snapshot& r,
   const Entry a=li==l.end()?Entry{}:li->second;
   const Entry b=ri==r.end()?Entry{}:ri->second;
   const Pair oldPair=oi==old.end()?Pair{}:oi->second;
-  out.push_back({name,compare(a,b,oldPair,options)});
+  auto action=compare(a,b,oldPair,options);
+  if(action==Action::Conflict) {
+   auto override=options.overrides.find(name);
+   if(override!=options.overrides.end()){
+    // Never replace a directory with a file (or vice versa) implicitly.
+    // Such conflicts need explicit filesystem intervention.
+    if(a.exists&&b.exists&&a.directory!=b.directory) {
+     if(override->second==ConflictChoice::Skip)action=Action::Skip;
+    }else{
+     switch(override->second){
+      case ConflictChoice::KeepLeft:
+       action=a.exists?Action::CopyLeftToRight:Action::DeleteRight;
+       break;
+      case ConflictChoice::KeepRight:
+       action=b.exists?Action::CopyRightToLeft:Action::DeleteLeft;
+       break;
+      case ConflictChoice::Skip:action=Action::Skip;break;
+     }
+    }
+   }
+  }
+  out.push_back({name,action});
  }
  return out;
 }
@@ -163,18 +197,18 @@ void transfer(Endpoint& from,Endpoint& to,const std::string& name,const Entry& i
 void erase(Endpoint& endpoint,const std::string& name){endpoint.remove(name);}
 }
 Engine::Engine(fs::path state,Options options):state_(std::move(state)),options_(options){}
-std::vector<Decision> Engine::plan(const Endpoint& left,const Endpoint& right)const{
+std::vector<Decision> Engine::plan(const Endpoint& left,const Endpoint& right,const RunCallbacks& callbacks)const{
  ensure_distinct(left,right,state_);
  auto state=load(state_,left,right);
- return build(scan_hashed(left),scan_hashed(right),state.history,options_);
+ return build(scan_hashed(left,callbacks,Phase::ScanLeft),scan_hashed(right,callbacks,Phase::ScanRight),state.history,options_);
 }
-std::vector<Decision> Engine::plan(const fs::path& left,const fs::path& right)const{
- LocalEndpoint l(left),r(right);return plan(l,r);
+std::vector<Decision> Engine::plan(const fs::path& left,const fs::path& right,const RunCallbacks& callbacks)const{
+ LocalEndpoint l(left),r(right);return plan(l,r,callbacks);
 }
-Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run){
+Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallbacks& callbacks){
  ensure_distinct(left,right,state_);
  auto state=load(state_,left,right);
- const auto leftScan=scan_hashed(left),rightScan=scan_hashed(right);
+ const auto leftScan=scan_hashed(left,callbacks,Phase::ScanLeft),rightScan=scan_hashed(right,callbacks,Phase::ScanRight);
  auto decisions=build(leftScan,rightScan,state.history,options_);
  Result result;
  for(const auto& decision:decisions)
@@ -183,20 +217,37 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run){
  if(!result.conflicts.empty() && options_.conflict!=ConflictPolicy::Ignore)return result;
  // No filesystem modifications until both scans and every conflict have
  // been evaluated. Conflicting entries are not committed to the history.
+ std::size_t copied=0;
+ const auto copies=std::count_if(decisions.begin(),decisions.end(),[](const Decision& d){
+  return d.action==Action::CopyLeftToRight||d.action==Action::CopyRightToLeft;
+ });
+ emit(callbacks,Phase::Copy,0,static_cast<std::size_t>(copies));
  for(const auto& d:decisions) {
+  check_cancel(callbacks);
   const auto li=leftScan.find(d.relative),ri=rightScan.find(d.relative);
   switch(d.action){
    case Action::CopyLeftToRight: transfer(left,right,d.relative,li->second);++result.copied;break;
    case Action::CopyRightToLeft: transfer(right,left,d.relative,ri->second);++result.copied;break;
    default:break;
   }
+  if(d.action==Action::CopyLeftToRight||d.action==Action::CopyRightToLeft)
+   emit(callbacks,Phase::Copy,++copied,static_cast<std::size_t>(copies),d.relative);
  }
  std::reverse(decisions.begin(),decisions.end());
+ const auto deletions=std::count_if(decisions.begin(),decisions.end(),[](const Decision& d){
+  return d.action==Action::DeleteLeft||d.action==Action::DeleteRight;
+ });
+ std::size_t deleted=0;
+ emit(callbacks,Phase::Delete,0,static_cast<std::size_t>(deletions));
  for(const auto& d:decisions) {
+  check_cancel(callbacks);
   if(d.action==Action::DeleteLeft){erase(left,d.relative);++result.removed;}
   if(d.action==Action::DeleteRight){erase(right,d.relative);++result.removed;}
+  if(d.action==Action::DeleteRight||d.action==Action::DeleteLeft)
+   emit(callbacks,Phase::Delete,++deleted,static_cast<std::size_t>(deletions),d.relative);
  }
- auto l2=scan_hashed(left),r2=scan_hashed(right);
+ check_cancel(callbacks);
+ auto l2=scan_hashed(left,callbacks,Phase::VerifyLeft),r2=scan_hashed(right,callbacks,Phase::VerifyRight);
  // Never learn a state if a file changed during copying or its destination
  // did not match the source. This also catches partial remote replacements.
  for(const auto& d:decisions){
@@ -211,16 +262,19 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run){
   }
  }
  for(const auto& d:decisions){
-  if(d.action==Action::Conflict)continue;
+  if(d.action==Action::Conflict||d.action==Action::Skip)continue;
   const auto li=l2.find(d.relative),ri=r2.find(d.relative);
   Pair p{li==l2.end()?Entry{}:li->second,ri==r2.end()?Entry{}:ri->second};
   if(!p.left.exists&&!p.right.exists)state.history.erase(d.relative);
   else state.history[d.relative]=p;
  }
+ check_cancel(callbacks);
+ emit(callbacks,Phase::Save,0,1);
  save(state_,state);
+ emit(callbacks,Phase::Complete,1,1);
  return result;
 }
-Result Engine::run(const fs::path& left,const fs::path& right,bool dry_run){
- LocalEndpoint l(left),r(right);return run(l,r,dry_run);
+Result Engine::run(const fs::path& left,const fs::path& right,bool dry_run,const RunCallbacks& callbacks){
+ LocalEndpoint l(left),r(right);return run(l,r,dry_run,callbacks);
 }
 }

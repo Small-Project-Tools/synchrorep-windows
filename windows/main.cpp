@@ -1,6 +1,13 @@
 #define UNICODE
 #define _UNICODE
 #include <windows.h>
+#include <commctrl.h>
+#include <atomic>
+#include <thread>
+#include <map>
+#include <optional>
+#include <vector>
+#include "async_job.hpp"
 #include <shellapi.h>
 #include <wincred.h>
 #include <algorithm>
@@ -22,7 +29,8 @@ enum Control : int {
  IdLeft=106,IdRight=107,IdLeftUser=108,IdLeftPassword=109,
  IdRightUser=110,IdRightPassword=111,IdKnownHosts=112,
  IdRemember=113,IdLoadCredentials=114,IdPolicy=115,IdDeletes=116,
- IdPreview=117,IdExecute=118,IdChanges=119,IdExplorer=120
+ IdPreview=117,IdExecute=118,IdChanges=119,IdExplorer=120,
+ IdCancel=121,IdKeepLeft=122,IdKeepRight=123,IdSkip=124,IdProgress=125,IdStatus=126
 };
 HWND controls[130]{};
 HWND mainWindow=nullptr;
@@ -30,6 +38,17 @@ HFONT font=nullptr;
 std::vector<Profile> profiles;
 int selectedProfile=-1;
 bool loading=false;
+std::unique_ptr<synchrorep::winui::AsyncJob> job;
+bool busy=false;
+std::map<std::string,ConflictChoice> overrides;
+std::vector<Decision> shownDecisions;
+struct JobSettings {
+ Profile profile;
+ std::string leftUser,leftPassword,rightUser,rightPassword;
+ std::map<std::string,ConflictChoice> overrides;
+ bool execute=false;
+};
+
 
 std::wstring toWide(const std::string& s){
  if(s.empty())return {};
@@ -102,6 +121,7 @@ std::wstring operationName(Action a){
  case Action::DeleteRight:return L"Delete right";
  case Action::Conflict:return L"CONFLICT";
  case Action::None:return L"No change";
+ case Action::Skip:return L"Skipped";
  }
  return L"Unknown";
 }
@@ -122,7 +142,7 @@ void clearCredentials(){
 }
 void loadProfile(int index){
  if(index<0||index>=static_cast<int>(profiles.size()))return;
- selectedProfile=index;const auto& p=profiles.at(static_cast<std::size_t>(index));
+ selectedProfile=index;overrides.clear();shownDecisions.clear();const auto& p=profiles.at(static_cast<std::size_t>(index));
  set(IdName,toWide(p.name));set(IdLeft,toWide(p.left));set(IdRight,toWide(p.right));
  set(IdKnownHosts,toWide(p.known_hosts));
  SendMessageW(controls[IdPolicy],CB_SETCURSEL,static_cast<WPARAM>(p.conflict),0);
@@ -168,49 +188,144 @@ bool loadCredential(int uriId,int usernameId,int passwordId){
  }
  return true;
 }
-std::unique_ptr<Endpoint> endpoint(int uriId,int userId,int passwordId){
- const auto uri=toUtf8(get(uriId));
+std::unique_ptr<Endpoint> endpointFrom(const std::string& uri,
+  const std::string& username,const std::string& password,const std::string& known_hosts) {
  auto kind=endpoint_kind(uri);
- if(kind!=EndpointKind::Ftp&&kind!=EndpointKind::Sftp)
-  return open_endpoint(uri);
- RemoteCredentials credentials;
- credentials.username=toUtf8(get(userId));credentials.password=toUtf8(get(passwordId));
- credentials.known_hosts=toUtf8(get(IdKnownHosts));
+ if(kind!=EndpointKind::Ftp && kind!=EndpointKind::Sftp)return open_endpoint(uri);
+ RemoteCredentials credentials{username,password,known_hosts,{}};
  if(credentials.username.empty())throw std::runtime_error("Remote username is required");
  return std::make_unique<RemoteEndpoint>(uri,std::move(credentials));
 }
-void previewOrRun(bool preview){
- auto a=endpoint(IdLeft,IdLeftUser,IdLeftPassword);
- auto b=endpoint(IdRight,IdRightUser,IdRightPassword);
- auto p=fromForm();
- Engine engine(statePath(*a,*b),{p.conflict,p.propagate_deletions});
- auto plan=engine.plan(*a,*b);
+void showPlan(const std::vector<Decision>& plan){
+ shownDecisions.clear();
  SendMessageW(controls[IdChanges],LB_RESETCONTENT,0,0);
- std::size_t pending=0,deletes=0,conflicts=0;
  for(const auto& d:plan){
   if(d.action==Action::None)continue;
-  ++pending;
-  if(d.action==Action::DeleteLeft||d.action==Action::DeleteRight)++deletes;
-  if(d.action==Action::Conflict)++conflicts;
-  auto line=operationName(d.action)+L" : "+toWide(d.relative);
-  SendMessageW(controls[IdChanges],LB_ADDSTRING,0,reinterpret_cast<LPARAM>(line.c_str()));
+  shownDecisions.push_back(d);
+  auto text=operationName(d.action)+L" : "+toWide(d.relative);
+  SendMessageW(controls[IdChanges],LB_ADDSTRING,0,reinterpret_cast<LPARAM>(text.c_str()));
  }
- if(preview){
-  std::wstring summary=L"Changes: "+std::to_wstring(pending)+L"\nDeletions: "+
-   std::to_wstring(deletes)+L"\nConflicts: "+std::to_wstring(conflicts);
-  MessageBoxW(mainWindow,summary.c_str(),L"Synchrorep - Preview",MB_OK|MB_ICONINFORMATION);
+}
+void setBusy(bool running){
+ busy=running;
+ for(int id:{IdProfiles,IdNew,IdSave,IdDelete,IdName,IdLeft,IdRight,
+  IdLeftUser,IdLeftPassword,IdRightUser,IdRightPassword,IdKnownHosts,
+  IdRemember,IdLoadCredentials,IdPolicy,IdDeletes,IdPreview,IdExecute,
+  IdExplorer,IdKeepLeft,IdKeepRight,IdSkip})
+   EnableWindow(controls[id],!running);
+ EnableWindow(controls[IdCancel],running);
+}
+JobSettings getJobSettings(bool execute){
+ JobSettings settings;
+ settings.profile=fromForm();
+ if(settings.profile.left.empty()||settings.profile.right.empty())
+  throw std::runtime_error("Both endpoints must be configured");
+ settings.leftUser=toUtf8(get(IdLeftUser));
+ settings.leftPassword=toUtf8(get(IdLeftPassword));
+ settings.rightUser=toUtf8(get(IdRightUser));
+ settings.rightPassword=toUtf8(get(IdRightPassword));
+ settings.overrides=overrides;
+ settings.execute=execute;
+ return settings;
+}
+void startSync(bool execute){
+ if(busy)return;
+ auto settings=getJobSettings(execute);
+ if(execute&&MessageBoxW(mainWindow,
+   L"Synchronization may permanently delete files. Review the preview and confirm that you want to continue.",
+   L"Confirm synchronization",MB_YESNO|MB_ICONWARNING|MB_DEFBUTTON2)!=IDYES)return;
+ if(!job)job=std::make_unique<synchrorep::winui::AsyncJob>(mainWindow);
+ SendMessageW(controls[IdProgress],PBM_SETPOS,0,0);
+ set(IdStatus,L"Starting...");
+ setBusy(true);
+ try{
+  job->start([settings=std::move(settings)](const RunCallbacks& callbacks){
+   synchrorep::winui::FinishedEvent result;
+   auto a=endpointFrom(settings.profile.left,settings.leftUser,
+                       settings.leftPassword,settings.profile.known_hosts);
+   auto b=endpointFrom(settings.profile.right,settings.rightUser,
+                       settings.rightPassword,settings.profile.known_hosts);
+   Options options{settings.profile.conflict,settings.profile.propagate_deletions,
+                   settings.overrides};
+   Engine engine(statePath(*a,*b),std::move(options));
+   result.decisions=engine.plan(*a,*b,callbacks);
+   if(settings.execute){
+    const bool conflicts=std::any_of(result.decisions.begin(),result.decisions.end(),
+      [](const Decision& decision){return decision.action==Action::Conflict;});
+    if(conflicts&&settings.profile.conflict!=ConflictPolicy::Ignore){
+     result.error="Resolve each conflict using the Keep left, Keep right, or Skip buttons, then retry.";
+    }else{
+     result.result=engine.run(*a,*b,false,callbacks);
+     result.executed=true;
+    }
+   }
+   return result;
+  });
+ }catch(...){setBusy(false);throw;}
+}
+void chooseConflict(ConflictChoice choice){
+ if(busy)return;
+ const auto selected=SendMessageW(controls[IdChanges],LB_GETCURSEL,0,0);
+ if(selected<0||static_cast<std::size_t>(selected)>=shownDecisions.size()){
+  MessageBoxW(mainWindow,L"Select a conflicting file first.",L"Synchrorep",MB_ICONINFORMATION);
   return;
  }
- if(conflicts&&p.conflict!=ConflictPolicy::Ignore){
-  MessageBoxW(mainWindow,L"Unresolved conflicts. Review the list; no file was changed.",
-              L"Synchrorep - Conflicts",MB_OK|MB_ICONWARNING);return;
+ const auto& d=shownDecisions.at(static_cast<std::size_t>(selected));
+ if(d.action!=Action::Conflict&&d.action!=Action::Skip&&!overrides.count(d.relative)){
+  MessageBoxW(mainWindow,L"The selected file is not a conflict.",L"Synchrorep",MB_ICONINFORMATION);
+  return;
  }
- if(deletes&&MessageBoxW(mainWindow,L"Files or directories will be permanently deleted. Continue?",
-                        L"Confirm deletions",MB_YESNO|MB_ICONWARNING|MB_DEFBUTTON2)!=IDYES)return;
- auto result=engine.run(*a,*b);
- std::wstring summary=L"Copied: "+std::to_wstring(result.copied)+L"\nDeleted: "+
-  std::to_wstring(result.removed)+L"\nUnresolved conflicts: "+std::to_wstring(result.conflicts.size());
- MessageBoxW(mainWindow,summary.c_str(),L"Synchrorep",MB_ICONINFORMATION);
+ overrides[d.relative]=choice;
+ auto verb=choice==ConflictChoice::KeepLeft?L"Keep LEFT":
+  choice==ConflictChoice::KeepRight?L"Keep RIGHT":L"Skip";
+ std::wstring text=std::wstring(verb)+L" : "+toWide(d.relative);
+ SendMessageW(controls[IdChanges],LB_DELETESTRING,selected,0);
+ SendMessageW(controls[IdChanges],LB_INSERTSTRING,selected,reinterpret_cast<LPARAM>(text.c_str()));
+ SendMessageW(controls[IdChanges],LB_SETCURSEL,selected,0);
+ set(IdStatus,L"Conflict choice saved for this run. Preview again to validate it.");
+}
+std::wstring phaseName(Phase phase){
+ switch(phase){
+ case Phase::ScanLeft:return L"Scan left";
+ case Phase::ScanRight:return L"Scan right";
+ case Phase::Copy:return L"Copy";
+ case Phase::Delete:return L"Delete";
+ case Phase::VerifyLeft:return L"Verify left";
+ case Phase::VerifyRight:return L"Verify right";
+ case Phase::Save:return L"Save history";
+ case Phase::Complete:return L"Complete";
+ }
+ return L"Processing";
+}
+void onProgress(std::unique_ptr<synchrorep::winui::ProgressEvent> event){
+ if(!busy)return;
+ const auto& info=event->state;
+ const auto range=static_cast<LPARAM>(std::min<std::size_t>(info.total,1000000));
+ SendMessageW(controls[IdProgress],PBM_SETRANGE32,0,std::max<LPARAM>(1,range));
+ SendMessageW(controls[IdProgress],PBM_SETPOS,static_cast<WPARAM>(std::min<std::size_t>(info.completed,1000000)),0);
+ auto text=phaseName(info.phase)+L" "+
+  std::to_wstring(info.completed)+L"/"+std::to_wstring(info.total);
+ if(!info.relative.empty())text+=L" : "+toWide(info.relative);
+ set(IdStatus,text);
+}
+void onFinished(std::unique_ptr<synchrorep::winui::FinishedEvent> result){
+ if(job)job->join();
+ setBusy(false);
+ showPlan(result->decisions);
+ if(result->cancelled){
+  set(IdStatus,L"Cancelled between files; completed changes remain.");
+  MessageBoxW(mainWindow,L"Cancelled. Completed transfers are preserved. The next run will reconcile them.",
+              L"Synchrorep",MB_OK|MB_ICONWARNING);
+ }else if(!result->error.empty()){
+  set(IdStatus,L"Operation failed or conflicts unresolved.");
+  MessageBoxA(mainWindow,result->error.c_str(),"Synchrorep",MB_OK|MB_ICONERROR);
+ }else if(result->executed){
+  auto text=L"Copied: "+std::to_wstring(result->result.copied)+
+            L"\nDeleted: "+std::to_wstring(result->result.removed)+
+            L"\nConflicts: "+std::to_wstring(result->result.conflicts.size());
+  set(IdStatus,L"Synchronization complete.");
+  MessageBoxW(mainWindow,text.c_str(),L"Synchrorep",MB_OK|MB_ICONINFORMATION);
+ }else set(IdStatus,L"Preview complete. Select a conflict to choose its resolution.");
 }
 void setExplorerMenu(bool enabled){
  const wchar_t* key=L"Software\\Classes\\Directory\\shell\\Synchrorep";
@@ -253,7 +368,7 @@ void onCommand(int id){
   break;
  }
  case IdNew:
-  selectedProfile=-1;
+  selectedProfile=-1;overrides.clear();shownDecisions.clear();
   set(IdName,L"New synchronization");set(IdLeft,L"");set(IdRight,L"");
   clearCredentials();SendMessageW(controls[IdChanges],LB_RESETCONTENT,0,0);
   updateList();break;
@@ -273,7 +388,7 @@ void onCommand(int id){
        L"Synchrorep",MB_YESNO|MB_ICONQUESTION)==IDYES){
    profiles.erase(profiles.begin()+selectedProfile);
    ProfileStore(appDirectory()/"profiles.dat").save(profiles);
-   selectedProfile=-1;set(IdName,L"");set(IdLeft,L"");set(IdRight,L"");
+   selectedProfile=-1;overrides.clear();shownDecisions.clear();set(IdName,L"");set(IdLeft,L"");set(IdRight,L"");
    updateList();
   }break;
  case IdRemember:{
@@ -290,8 +405,12 @@ void onCommand(int id){
  }
  case IdExplorer:
   setExplorerMenu(SendMessageW(controls[IdExplorer],BM_GETCHECK,0,0)==BST_CHECKED);break;
- case IdPreview:previewOrRun(true);break;
- case IdExecute:previewOrRun(false);break;
+ case IdPreview:startSync(false);break;
+ case IdExecute:startSync(true);break;
+ case IdCancel:if(job)job->stop();set(IdStatus,L"Cancellation requested; waiting for current file.");break;
+ case IdKeepLeft:chooseConflict(ConflictChoice::KeepLeft);break;
+ case IdKeepRight:chooseConflict(ConflictChoice::KeepRight);break;
+ case IdSkip:chooseConflict(ConflictChoice::Skip);break;
  default:break;
  }
 }
@@ -331,8 +450,15 @@ void initializeControls(HWND h){
  SendMessageW(controls[IdDeletes],BM_SETCHECK,BST_CHECKED,0);
  button(h,L"Preview",IdPreview,320,505,244);
  button(h,L"Synchronize",IdExecute,575,505,291);
- label(h,L"Pending operations / conflicts",320,552);
- place(h,L"LISTBOX",L"",WS_BORDER|WS_VSCROLL|WS_HSCROLL,320,575,546,120,IdChanges);
+ button(h,L"Cancel operation",IdCancel,320,543,260);
+ EnableWindow(controls[IdCancel],FALSE);
+ label(h,L"Pending operations / conflicts (select a conflict)",320,586,540);
+ place(h,L"LISTBOX",L"",WS_BORDER|WS_VSCROLL|WS_HSCROLL|LBS_NOTIFY,320,608,546,100,IdChanges);
+ button(h,L"Keep left",IdKeepLeft,320,712,170);
+ button(h,L"Keep right",IdKeepRight,500,712,170);
+ button(h,L"Skip file",IdSkip,680,712,186);
+ place(h,PROGRESS_CLASSW,L"",PBS_SMOOTH,320,750,546,18,IdProgress);
+ place(h,L"STATIC",L"Ready",0,320,777,546,20,IdStatus);
 }
 LRESULT CALLBACK windowProc(HWND window,UINT message,WPARAM w,LPARAM l){
  switch(message){
@@ -346,7 +472,27 @@ LRESULT CALLBACK windowProc(HWND window,UINT message,WPARAM w,LPARAM l){
   if(LOWORD(w)!=IdProfiles&&LOWORD(w)!=IdPolicy&&HIWORD(w)!=BN_CLICKED)return 0;
   try{onCommand(LOWORD(w));}catch(const std::exception& e){MessageBoxA(window,e.what(),"Synchrorep error",MB_ICONERROR);}
   return 0;
- case WM_DESTROY:PostQuitMessage(0);return 0;
+ case synchrorep::winui::ProgressMessage:
+  onProgress(std::unique_ptr<synchrorep::winui::ProgressEvent>(
+   reinterpret_cast<synchrorep::winui::ProgressEvent*>(l)));
+  return 0;
+ case synchrorep::winui::FinishedMessage:
+  onFinished(std::unique_ptr<synchrorep::winui::FinishedEvent>(
+   reinterpret_cast<synchrorep::winui::FinishedEvent*>(l)));
+  return 0;
+ case WM_DESTROY: {
+  if(job){job->stop();job->join();}
+  MSG pending;
+  while(PeekMessageW(&pending,window,synchrorep::winui::ProgressMessage,
+                     synchrorep::winui::FinishedMessage,PM_REMOVE)){
+   if(pending.message==synchrorep::winui::ProgressMessage)
+    delete reinterpret_cast<synchrorep::winui::ProgressEvent*>(pending.lParam);
+   else if(pending.message==synchrorep::winui::FinishedMessage)
+    delete reinterpret_cast<synchrorep::winui::FinishedEvent*>(pending.lParam);
+  }
+  PostQuitMessage(0);
+  return 0;
+ }
  default:return DefWindowProcW(window,message,w,l);
  }
 }
@@ -355,9 +501,11 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int show){
  WNDCLASSW wc{};wc.lpfnWndProc=windowProc;wc.hInstance=instance;
  wc.lpszClassName=L"SynchrorepWindow";wc.hCursor=LoadCursor(nullptr,IDC_ARROW);
  wc.hbrBackground=reinterpret_cast<HBRUSH>(COLOR_WINDOW+1);
+ INITCOMMONCONTROLSEX init{sizeof(init),ICC_PROGRESS_CLASS};
+ InitCommonControlsEx(&init);
  RegisterClassW(&wc);
  HWND window=CreateWindowW(wc.lpszClassName,L"Synchrorep - Settings",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|
-   WS_MINIMIZEBOX,CW_USEDEFAULT,CW_USEDEFAULT,900,745,nullptr,nullptr,instance,nullptr);
+   WS_MINIMIZEBOX,CW_USEDEFAULT,CW_USEDEFAULT,900,850,nullptr,nullptr,instance,nullptr);
  if(!window)return 1;
  try{
   profiles=ProfileStore(appDirectory()/"profiles.dat").load();

@@ -20,4 +20,4 @@ La case **Explorer context menu** enregistre ou retire une clé dans `HKCU\Softw
 
 ## Limitations
 
-La synchronisation fonctionne sur le thread UI et bloque temporairement la fenêtre. La progression, l'annulation, la résolution individuelle des conflits, les groupes et le support du menu moderne Windows 11 ne sont pas encore réalisés. Les contrôles ne sont pas encore soumis à des tests UI Windows automatisés.
+La synchronisation est maintenant lancee sur un thread de travail et la fenetre reste utilisable. Une barre indique l'avancement par phase; Cancel operation demande l'arret entre deux fichiers. Keep left / Keep right / Skip file permettent de resoudre individuellement les conflits listes. Les groupes, le suivi d'octets, les dialogues GTK exacts et le menu moderne Windows 11 restent manquants. Voir docs/execution.md. Les contrôles ne sont pas encore soumis à des tests UI Windows automatisés.
