@@ -59,3 +59,17 @@ ressource. Les logos du MSIX dérivent de la même image.
 La compilation MinGW et les tests sous Wine valident le contrat COM et
 la présence de l'icône. Le chargement réel par Windows Explorer 11 et
 la signature du MSIX restent à tester sur un poste Windows natif.
+
+
+## Enregistrement automatique du menu classique (0.13.1)
+
+À partir de 0.13.1, le MSI enregistre et supprime avec Windows Installer
+les commandes sous HKLM\Software\Classes pour les dossiers sélectionnés,
+le fond d’un dossier et les lecteurs. Il transmet le chemin du dossier à
+l’exécutable en paramètre entre guillemets (%1 ou %V). L'icône correspond au
+binaire installé. Ces clés sont supprimées à la désinstallation du MSI.
+
+Sur Windows 11, accéder à la commande via **Afficher d’autres options**.
+Le menu compact moderne ne sera disponible qu’après déploiement et signature
+du package MSIX sparse, distinct du MSI. Un redémarrage de l’Explorateur peut
+être nécessaire pour actualiser un menu déjà ouvert.

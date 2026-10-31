@@ -117,6 +117,10 @@ void addTray(){
  info.hIcon=LoadIconW(GetModuleHandleW(nullptr),MAKEINTRESOURCEW(101));
  wcscpy_s(info.szTip,L"Synchrorep - Mirror monitoring active");
  trayAdded=Shell_NotifyIconW(NIM_ADD,&info)!=FALSE;
+ if(trayAdded){
+  info.uVersion=NOTIFYICON_VERSION_4;
+  Shell_NotifyIconW(NIM_SETVERSION,&info);
+ }
 }
 
 
@@ -625,7 +629,15 @@ void setExplorerMenu(bool enabled){
  RegCloseKey(out);
  if(status!=ERROR_SUCCESS)throw std::runtime_error("Cannot register Explorer menu command");
 }
+bool explorerMenuMachineInstalled(){
+ HKEY key=nullptr;
+ if(RegOpenKeyExW(HKEY_LOCAL_MACHINE,L"Software\\Classes\\Directory\\shell\\Synchrorep\\command",
+                  0,KEY_READ,&key)!=ERROR_SUCCESS)return false;
+ RegCloseKey(key);
+ return true;
+}
 bool explorerMenuInstalled(){
+ if(explorerMenuMachineInstalled())return true;
  HKEY key=nullptr;
  if(RegOpenKeyExW(HKEY_CURRENT_USER,L"Software\\Classes\\Directory\\shell\\Synchrorep",0,KEY_READ,&key)!=ERROR_SUCCESS)return false;
  RegCloseKey(key);return true;
@@ -708,7 +720,9 @@ void onCommand(int id){
   break;
  }
  case IdExplorer:
-  setExplorerMenu(SendMessageW(controls[IdExplorer],BM_GETCHECK,0,0)==BST_CHECKED);break;
+  if(!explorerMenuMachineInstalled())
+   setExplorerMenu(SendMessageW(controls[IdExplorer],BM_GETCHECK,0,0)==BST_CHECKED);
+  break;
  case IdOpenRecovery:openRecoveryBrowser();break;
  case IdOpenLogs:{
   auto folder=appDirectory()/L"logs";
@@ -735,6 +749,10 @@ void initializeControls(HWND h){
  button(h,L"Delete",IdDelete,200,483,91);
  place(h,L"BUTTON",L"Explorer context menu",BS_AUTOCHECKBOX|WS_TABSTOP,18,534,270,24,IdExplorer);
  SendMessageW(controls[IdExplorer],BM_SETCHECK,explorerMenuInstalled()?BST_CHECKED:BST_UNCHECKED,0);
+ if(explorerMenuMachineInstalled()){
+  SetWindowTextW(controls[IdExplorer],L"Explorer menu installed by MSI");
+  EnableWindow(controls[IdExplorer],FALSE);
+ }
  place(h,L"BUTTON",L"Preserve old versions",BS_AUTOCHECKBOX|WS_TABSTOP,
        18,566,274,24,IdProtect);
  SendMessageW(controls[IdProtect],BM_SETCHECK,BST_CHECKED,0);
@@ -824,12 +842,16 @@ LRESULT CALLBACK windowProc(HWND window,UINT message,WPARAM w,LPARAM l){
   }
   return DefWindowProcW(window,message,w,l);
  case TrayMessage:{
-  if(l==WM_LBUTTONDBLCLK){showMainWindow();return 0;}
-  if(l==WM_RBUTTONUP){
+  const auto event=LOWORD(l);
+  if(event==WM_LBUTTONDBLCLK||event==NIN_SELECT||event==NIN_KEYSELECT){
+   showMainWindow();return 0;
+  }
+  if(event==WM_RBUTTONUP||event==WM_CONTEXTMENU){
    HMENU menu=CreatePopupMenu();
    if(!menu)return 0;
    AppendMenuW(menu,MF_STRING,901,L"Show Synchrorep");
-   AppendMenuW(menu,MF_STRING,902,L"Stop continuous mirror");
+   AppendMenuW(menu,MF_STRING|(busy&&activeMirror?0:MF_GRAYED),
+               902,L"Stop continuous mirror");
    AppendMenuW(menu,MF_SEPARATOR,0,nullptr);
    AppendMenuW(menu,MF_STRING,903,L"Exit Synchrorep");
    POINT cursor{};GetCursorPos(&cursor);
@@ -837,6 +859,7 @@ LRESULT CALLBACK windowProc(HWND window,UINT message,WPARAM w,LPARAM l){
    const auto action=TrackPopupMenu(menu,TPM_RIGHTBUTTON|TPM_RETURNCMD|TPM_NONOTIFY,
                                     cursor.x,cursor.y,0,window,nullptr);
    DestroyMenu(menu);
+   PostMessageW(window,WM_NULL,0,0);
    if(action==901)showMainWindow();
    if(action==902&&job)job->stop();
    if(action==903)DestroyWindow(window);

@@ -27,7 +27,30 @@ assert files=={
 }
 shortcuts=product.findall(".//w:Shortcut",ns)
 assert len(shortcuts)==1 and shortcuts[0].attrib["Name"]=="Synchrorep"
-assert len(product.findall(".//w:RegistryValue",ns))==0
+# Registration must be automatic for classic Windows 11 "Show more options".
+registry=product.findall(".//w:RegistryValue",ns)
+assert len(registry)==9
+expected={
+    "Software\\Classes\\Directory\\shell\\Synchrorep": '%1',
+    "Software\\Classes\\Directory\\Background\\shell\\Synchrorep": '%V',
+    "Software\\Classes\\Drive\\shell\\Synchrorep": '%1',
+}
+for root,argument in expected.items():
+    items=[v for v in registry if v.attrib["Key"] in (root,root+"\\command")]
+    assert len(items)==3
+    assert all(v.attrib["Root"]=="HKLM" for v in items)
+    title=next(v for v in items if v.attrib["Key"]==root and "Name" not in v.attrib)
+    icon=next(v for v in items if v.attrib.get("Name")=="Icon")
+    command=next(v for v in items if v.attrib["Key"]==root+"\\command")
+    assert title.attrib["Value"]=="Synchronize with Synchrorep"
+    assert icon.attrib["Value"]=='"[#AppFile]",0'
+    assert command.attrib["Value"]=='"[#AppFile]" "'+argument+'"'
+# Windows Installer owns the registry values through the AppComponent;
+# they must be removed with that component on uninstall.
+assert len(product.findall(".//w:RemoveRegistryKey",ns))==0
+# Don't implicitly enable any synchronization, just the menu.
+assert not any("\\Run" in v.attrib["Key"] for v in registry)
+
 assert "<!-- RUNTIME_COMPONENTS -->" in text and "<!-- RUNTIME_REFS -->" in text
 assert len(product.findall(".//w:Component",ns))==len(files)
 assert len(product.findall(".//w:ComponentRef",ns))==len(files)

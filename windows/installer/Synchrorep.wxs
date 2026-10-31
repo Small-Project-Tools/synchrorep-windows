@@ -3,7 +3,7 @@
      are injected from the checksum-verified Windows curl dependency set. -->
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Product Id="*" Name="Synchrorep" Manufacturer="Synchrorep contributors"
-           Version="0.13.0" Language="1033"
+           Version="0.13.1" Language="1033"
            UpgradeCode="E7933186-3749-4B61-AD35-68A48EB337CD">
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"/>
     <MajorUpgrade DowngradeErrorMessage="A newer Synchrorep version is already installed."/>
@@ -19,6 +19,26 @@
                         Name="Synchrorep" WorkingDirectory="INSTALLFOLDER"
                         Advertise="yes" Icon="SynchrorepIcon" IconIndex="0"/>
             </File>
+            <!-- All-user classic Explorer menus for folders, empty folder
+                 background and drives. MSI removes these on uninstall. -->
+            <RegistryValue Root="HKLM" Key="Software\Classes\Directory\shell\Synchrorep"
+                           Type="string" Value="Synchronize with Synchrorep"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\Directory\shell\Synchrorep"
+                           Name="Icon" Type="string" Value="&quot;[#AppFile]&quot;,0"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\Directory\shell\Synchrorep\command"
+                           Type="string" Value="&quot;[#AppFile]&quot; &quot;%1&quot;"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\Directory\Background\shell\Synchrorep"
+                           Type="string" Value="Synchronize with Synchrorep"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\Directory\Background\shell\Synchrorep"
+                           Name="Icon" Type="string" Value="&quot;[#AppFile]&quot;,0"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\Directory\Background\shell\Synchrorep\command"
+                           Type="string" Value="&quot;[#AppFile]&quot; &quot;%V&quot;"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\Drive\shell\Synchrorep"
+                           Type="string" Value="Synchronize with Synchrorep"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\Drive\shell\Synchrorep"
+                           Name="Icon" Type="string" Value="&quot;[#AppFile]&quot;,0"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\Drive\shell\Synchrorep\command"
+                           Type="string" Value="&quot;[#AppFile]&quot; &quot;%1&quot;"/>
           </Component>
           <Component Id="ExtensionComponent" Guid="4D909B2C-B0A0-5292-BD39-389539EC7739" Win64="yes">
             <File Id="ExtensionFile" Source="$(var.SourceExplorerDll)" Name="SynchrorepExplorer.dll" KeyPath="yes"/>

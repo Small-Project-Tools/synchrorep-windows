@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(synchrorep_windows VERSION 0.13.0 LANGUAGES CXX)
+project(synchrorep_windows VERSION 0.13.1 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 

@@ -38,3 +38,10 @@ assert "LoadIconW(GetModuleHandleW(nullptr),MAKEINTRESOURCEW(101))" in main
 explorer=(ROOT/"windows/explorer_command.cpp").read_text()
 assert 'L"synchrorep.exe"' in explorer and 'L",0"' in explorer
 print("Synchrorep original-derived image, Windows ICO and MSIX icons validated")
+
+# The notification icon needs both legacy and v4 shell events to expose
+# the same context menu on modern Windows 11 builds.
+main=(ROOT/"windows/main.cpp").read_text()
+assert "NIM_SETVERSION" in main and "NOTIFYICON_VERSION_4" in main
+assert "LOWORD(l)" in main and "event==WM_CONTEXTMENU" in main
+assert "event==WM_RBUTTONUP" in main and "TrackPopupMenu" in main

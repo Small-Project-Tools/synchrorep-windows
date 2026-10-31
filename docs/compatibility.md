@@ -13,7 +13,7 @@
 | Démarrage automatique des miroirs | HKCU Run, profil V5, prévention des doublons |
 | Historique, archives SHA-256 et reprise | Implémentés, validation de la Corbeille native à compléter |
 | Interfaces graphiques Win32 | Implémentées, validation visuelle sur Windows 11 nécessaire |
-| Menu contextuel classique | Implémenté |
+| Menu contextuel classique | Installé automatiquement par MSI depuis 0.13.1 |
 | Menu moderne Windows 11 | DLL IExplorerCommand compilée ; MSIX sparse signé encore nécessaire |
 | MSI unique local/WSL/FTP/SFTP | Build MinGW automatisé depuis 0.13.0 |
 | MSI signé / authentification Authenticode | Pas encore implémentée |

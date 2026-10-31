@@ -19,7 +19,7 @@ Portage natif C++20 de [Synchrorep pour GNOME](https://github.com/sebk69/Synchro
 
 ## Installation Windows
 
-Récupérer le fichier `synchrorep-windows-0.13.0-x64.msi` dans les
+Récupérer le fichier `synchrorep-windows-0.13.1-x64.msi` dans les
 [artefacts de la dernière compilation Windows](https://git.small-project.dev/pub/synchrorep-windows/-/jobs/artifacts/main/browse/build-win?job=windows-mingw).
 
 La CI Linux/MinGW construit désormais **l’unique édition complète** en utilisant
@@ -104,3 +104,17 @@ Documentation : [compatibilité](docs/compatibility.md),
 [exécution](docs/execution.md).
 
 Licence : voir [LICENSE](LICENSE).
+
+
+## Menu contextuel de l’Explorateur (0.13.1)
+
+L’installation MSI enregistre automatiquement **Synchronize with Synchrorep**
+au niveau machine (HKLM) pour les dossiers, les lecteurs et le fond d’un dossier.
+Sur Windows 11, utiliser le clic droit → **Afficher d’autres options** pour voir
+cette commande classique. Il n’est pas nécessaire de cocher manuellement
+l’option dans Synchrorep lorsque l’application est installée par MSI.
+
+Le MSI désenregistre ces commandes à la désinstallation. L’accès par le
+nouveau menu compact de Windows 11 reste lié à un package MSIX sparse signé,
+qui n’est pas encore distribué. La commande de l’icône de notification prend
+en charge les notifications classiques et la version 4 des événements Windows.

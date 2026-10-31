@@ -27,13 +27,13 @@ windows-mingw:
   - cmake -S . -B build-win -DSYNCHROREP_REMOTE=ON -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++-posix -DCURL_INCLUDE_DIR="$CI_PROJECT_DIR/build-msys2/win64/include" -DCURL_LIBRARY="$CI_PROJECT_DIR/build-msys2/win64/lib/libcurl.dll.a"
   - cmake --build build-win --target synchrorep engine_tests remote_tests windows_transport_tests sha256_tests profiles_tests recovery_tests recovery_catalog_tests recycle_bin_tests mirror_tests startup_tests startup_registry_tests windows_args_tests synchrorep_explorer_command explorer_command_tests icon_resource_tests --parallel 2
   - python3 scripts/stage_windows_runtime.py --prefix build-msys2/win64 --build build-win
-  - python3 scripts/render_windows_installer.py --build build-win --version 0.13.0
+  - python3 scripts/render_windows_installer.py --build build-win --version 0.13.1
   - python3 tests/windows_installer_test.py --build build-win
   - x86_64-w64-mingw32-objdump -p build-win/synchrorep.exe | grep 'DLL Name'
   - x86_64-w64-mingw32-objdump -p build-win/synchrorep.exe | grep 'libcurl-4.dll'
   - x86_64-w64-mingw32-objdump -p build-win/SynchrorepExplorer.dll | grep 'DllGetClassObject'
   - x86_64-w64-mingw32-objdump -p build-win/SynchrorepExplorer.dll | grep 'DllCanUnloadNow'
-  - wixl -a x64 -D SourceExe=build-win/synchrorep.exe -D SourceExplorerDll=build-win/SynchrorepExplorer.dll -D SourceLicense=LICENSE -D SourceNotices=build-win/THIRD_PARTY_NOTICES.txt -D SourceIcon=assets/synchrorep.ico -D RuntimeDir=build-win -o build-win/synchrorep-windows-0.13.0-x64.msi build-win/Synchrorep.wxs
+  - wixl -a x64 -D SourceExe=build-win/synchrorep.exe -D SourceExplorerDll=build-win/SynchrorepExplorer.dll -D SourceLicense=LICENSE -D SourceNotices=build-win/THIRD_PARTY_NOTICES.txt -D SourceIcon=assets/synchrorep.ico -D RuntimeDir=build-win -o build-win/synchrorep-windows-0.13.1-x64.msi build-win/Synchrorep.wxs
   - python3 tests/installer_manifest_test.py
   - python3 tests/icon_assets_test.py
  artifacts:
@@ -43,7 +43,7 @@ windows-mingw:
    - build-win/windows-dlls.txt
    - build-win/THIRD_PARTY_NOTICES.txt
    - build-msys2/win64/dependencies.lock
-   - build-win/synchrorep-windows-0.13.0-x64.msi
+   - build-win/synchrorep-windows-0.13.1-x64.msi
 
 # Optional MSVC cross-check: same features, no separate "full" product/MSI.
 windows-msvc-validation:
@@ -67,9 +67,9 @@ windows-sparse-unsigned:
  when: manual
  allow_failure: true
  script:
-  - ./windows/sparse/package.ps1 -ApplicationDirectory "build-win" -Output "Synchrorep.Windows.0.13.0.sparse-unsigned.msix"
+  - ./windows/sparse/package.ps1 -ApplicationDirectory "build-win" -Output "Synchrorep.Windows.0.13.1.sparse-unsigned.msix"
  artifacts:
-  paths: [Synchrorep.Windows.0.13.0.sparse-unsigned.msix]
+  paths: [Synchrorep.Windows.0.13.1.sparse-unsigned.msix]
 
 # Windows integration tests on the same cross-compiled executable and MSI.
 # Wine limitations should not block the mandatory cross-compilation job.
@@ -94,10 +94,12 @@ windows-wine-smoke:
   - xvfb-run -a wine build-win/explorer_command_tests.exe
   - export SYNCHROREP_TEST_WINDOWS=1
   - xvfb-run -a bash tests/integration/run.sh
-  - xvfb-run -a wine msiexec /i build-win/synchrorep-windows-0.13.0-x64.msi /qn
+  - xvfb-run -a wine msiexec /i build-win/synchrorep-windows-0.13.1-x64.msi /qn
   - export SYNCHROREP_EXE="$WINEPREFIX/drive_c/Program Files/Synchrorep/synchrorep.exe"
   - test -f "$SYNCHROREP_EXE"
   - cmp build-win/synchrorep.exe "$SYNCHROREP_EXE"
+  - xvfb-run -a bash tests/wine_explorer_menu_smoke.sh installed
   - xvfb-run -a bash tests/wine_autostart_smoke.sh
-  - xvfb-run -a wine msiexec /x build-win/synchrorep-windows-0.13.0-x64.msi /qn
+  - xvfb-run -a wine msiexec /x build-win/synchrorep-windows-0.13.1-x64.msi /qn
   - test ! -e "$SYNCHROREP_EXE"
+  - xvfb-run -a bash tests/wine_explorer_menu_smoke.sh removed

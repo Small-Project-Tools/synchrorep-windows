@@ -31,6 +31,11 @@ assert {f.attrib["Name"] for f in runtime}==set(listed)
 assert len(runtime)==len(listed)
 assert len(product.findall(".//w:Component",ns))==len(files)
 assert len(product.findall(".//w:ComponentRef",ns))==len(files)
+assert len(product.findall(".//w:RegistryValue",ns))==9
+assert len(product.findall(".//w:RemoveRegistryKey",ns))==0
+for command in product.findall(".//w:RegistryValue",ns):
+    assert command.attrib["Root"]=="HKLM"
+
 assert len({c.attrib["Guid"] for c in product.findall(".//w:Component",ns)})==len(files)
 assert (build/"THIRD_PARTY_NOTICES.txt").stat().st_size>500
 lock=args.prefix/"dependencies.lock"
