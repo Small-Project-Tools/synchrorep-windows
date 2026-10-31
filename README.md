@@ -17,6 +17,12 @@ Portage natif C++20 de [Synchrorep pour GNOME](https://github.com/sebk69/Synchro
 - Interface Win32, icône fournie, zone de notification, menu contextuel classique de l’Explorateur.
 - DLL `IExplorerCommand` et manifeste MSIX *sparse* pour préparer l’intégration au menu moderne Windows 11.
 
+## Code signing policy
+
+Free code signing provided by SignPath.io, certificate by SignPath Foundation.
+
+The project is preparing an application to SignPath Foundation. **Current builds are unsigned; signing has not been approved or enabled.** See the [code signing policy, team roles and privacy policy](docs/code-signing-policy.md), and the [project download page](https://small-project.dev/products/synchrorep#code-signing-policy).
+
 ## Installation Windows
 
 Récupérer le fichier `synchrorep-windows-0.13.5-x64.msi` dans les

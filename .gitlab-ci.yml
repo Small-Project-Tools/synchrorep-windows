@@ -1,5 +1,13 @@
 stages: [test, build, verify]
 
+# Signing must not run unless SignPath Foundation approves the project.
+# This check guards the public disclosure and artifact provenance prerequisites.
+signpath-policy-check:
+ stage: test
+ image: python:3.12-alpine
+ script:
+  - python3 tests/signpath_policy_test.py
+
 linux-tests:
  stage: test
  image: gcc:14
