@@ -3,7 +3,7 @@
 int main(int argc,char**argv){
  if(argc<4||argc>5){
   std::cerr<<"Usage: synchrorep LEFT RIGHT STATE_FILE [--dry-run]\n";
-  std::cerr<<"Endpoint types: local filesystem, wsl://distro/path (Windows only). FTP/SFTP pending.\n";
+  std::cerr<<"Endpoint types: local filesystem, wsl://distro/path (Windows only), FTP/SFTP when built with SYNCHROREP_REMOTE=ON.\n";
   return 2;
  }
  try{

@@ -1,65 +1,75 @@
 # Synchrorep Windows
 
-Portage Windows de [Synchrorep](https://github.com/sebk69/Synchrorep) (Sébastien Kus, 2009–2019, GPL-3.0).
+Portage natif C++20 de [Synchrorep pour GNOME](https://github.com/sebk69/Synchrorep) (Sébastien Kus, 2009–2019, GPL-3.0). Objectif : **le même fonctionnement et, à terme, la même interface**, intégrés à l'Explorateur Windows, pour les dossiers locaux, WSL, FTP et SFTP.
 
-**Prototype en développement : ne pas synchroniser de données irremplaçables.**
+**État : prototype, pas encore prêt pour des données critiques.**
 
-## Fonctionnalités
+## Fonctionnalités disponibles
 
-- Moteur C++20 commun à tous les protocoles, synchronisation bidirectionnelle, propagation des créations/suppressions, historique par paire d'emplacements et gestion des conflits.
-- Endpoints : local Windows et chemins UNC, WSL via `wsl://Ubuntu/home/user`, FTP et SFTP via libcurl.
-- FTP testé en intégration sur serveur isolé (MLSD, écriture, lecture, sous-dossiers, suppressions).
-- SFTP testé en intégration sur serveur SSH isolé (clé d'hôte contrôlée, écriture, lecture, sous-dossiers, suppressions).
-- Interface Win32 initiale avec prévisualisation et bouton Synchroniser ; entrée dans le menu contextuel classique de l'Explorateur.
+- Moteur commun de synchronisation bidirectionnelle avec état persistant par couple d'emplacements.
+- Comparaison des contenus par **SHA-256**, y compris si les fichiers ont la même taille et la même date de modification. Vérification après transfert avant enregistrement de l'historique.
+- Propagation des créations, modifications et suppressions, conflits bilatéraux et politiques Ignore / Newest / Oldest.
+- Endpoints local (Windows/UNC), WSL (`wsl://Ubuntu/home/user`), FTP et SFTP (libcurl).
+- Interface Windows avec fiches de synchronisation, configuration des endpoints, politiques, aperçu des actions, confirmation des suppressions et commandes pour les identifiants Windows.
+- Intégration au menu contextuel **classique** de l'Explorateur (Windows 11 : « Afficher d'autres options »).
+- Tests C++ du moteur, empreintes SHA-256 et stockage des profils ; tests d'intégration FTP/SFTP utilisant des serveurs locaux jetables.
 
-## Compilation et tests Linux
+## Compiler et tester sous Linux
 
-Nécessite CMake, C++20, libcurl-dev ; les tests réseau nécessitent Python 3, pyftpdlib et Paramiko.
+Prérequis : compilateur C++20, CMake, libcurl-dev, Python 3, pyftpdlib et Paramiko.
 
 ```bash
-cmake -S . -B build-remote -DSYNCHROREP_REMOTE=ON
+cmake -S . -B build-remote -DSYNCHROREP_REMOTE=ON -DCMAKE_BUILD_TYPE=Debug
 cmake --build build-remote --parallel
 ctest --test-dir build-remote --output-on-failure
 bash tests/integration/run.sh
 ```
 
-Le script démarre deux serveurs loopback temporaires, sans utiliser de serveurs externes.
+Les serveurs de test écoutent uniquement sur 127.0.0.1 et leurs données sont détruites à la fin de l'exécution.
 
-## Compilation Windows avec FTP/SFTP
+## Compiler l'application Windows complète
 
-Sous Windows, utiliser Visual Studio C++, CMake et [vcpkg](https://github.com/microsoft/vcpkg). Le manifeste vcpkg inclut curl avec libssh2, SSL et protocoles non HTTP.
+Prérequis : Windows, Visual Studio C++ (MSVC), CMake et [vcpkg](https://github.com/microsoft/vcpkg). Le manifeste déclare **curl avec les fonctionnalités `ssl` et `ssh`**. Utiliser le triplet statique pour obtenir une distribution autonome :
 
 ```powershell
-cmake -S . -B build-win-full -A x64 -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DSYNCHROREP_REMOTE=ON
-cmake --build build-win-full --config Release
+cmake -S . -B build-win-full -A x64 -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static -DSYNCHROREP_REMOTE=ON
+cmake --build build-win-full --config Release --parallel
+ctest --test-dir build-win-full -C Release --output-on-failure
 ```
 
-**À valider sous Windows réel** : cette recette MSVC/vcpkg n'a pas encore été exécutée sur un runner Windows. La pipeline MinGW produit volontairement un exécutable **local/WSL uniquement** avec `SYNCHROREP_REMOTE=OFF`.
+**Ce build complet n'a pas encore été exécuté sur un véritable Windows/MSVC.** Un job manuel `windows-msvc-full` est prévu sur un runner GitLab tagué `windows`. Le binaire produit par la CI MinGW (Linux) utilise `SYNCHROREP_REMOTE=OFF` : il ne prend en charge que **local et WSL**.
 
-### Connexions distantes
+## Utilisation Windows
 
-Les URL sont de la forme `ftp://host:21/path/` ou `sftp://host:22/path/`. Ne pas inclure d'identifiants dans l'URL.
+Démarrer `synchrorep.exe`. L'écran **Synchrorep - Settings** propose :
 
-| Protocole | Variables d'environnement |
+- Une liste de fiches enregistrables (New / Save / Delete).
+- Deux emplacements (chemins locaux/UNC ou URL `wsl://`, `ftp://`, `sftp://`).
+- Les identifiants FTP/SFTP de chaque extrémité, avec sauvegarde et lecture explicites via le **Gestionnaire d'identifiants Windows**. Ils ne sont jamais enregistrés dans le fichier des fiches.
+- Le chemin du `known_hosts` requis pour SFTP, les politiques de conflit, la propagation des suppressions, la prévisualisation et l'exécution.
+- Une case activant ou supprimant le menu contextuel classique pour les dossiers.
+
+Les fiches sont enregistrées sous `%LOCALAPPDATA%\Synchrorep\profiles.dat`, sans mot de passe. Les historiques individuels sont enregistrés dans le même répertoire avec une clé SHA-256 dérivée du couple d'emplacements.
+
+La CLI Linux lit actuellement les identifiants dans les variables d'environnement suivantes :
+
+| Protocole | Variables |
 | --- | --- |
 | FTP | `SYNCHROREP_FTP_USER`, `SYNCHROREP_FTP_PASSWORD` |
 | SFTP | `SYNCHROREP_SFTP_USER`, `SYNCHROREP_SFTP_PASSWORD`, `SYNCHROREP_SFTP_KNOWN_HOSTS` |
-| SFTP (optionnel) | `SYNCHROREP_SFTP_PRIVATE_KEY` |
+| SFTP optionnel | `SYNCHROREP_SFTP_PRIVATE_KEY` |
 
-L'intégration du Gestionnaire d'identifiants Windows et les écrans de gestion de connexion restent à développer.
+## Compatibilité et limites
 
-Pour installer le menu classique Explorateur (Windows 11 : « Afficher d'autres options ») :
+- Nouveau format `SYNCHROREP4` avec empreintes SHA-256. Les états historiques `SYNCHROREP3` sont **refusés explicitement**, sans migration silencieuse. Les migrations depuis SQLite de GNOME restent à écrire.
+- Le hachage SHA-256 de tous les fichiers est réalisé à chaque analyse. Sur FTP/SFTP, cela demande actuellement le **téléchargement du contenu distant**, potentiellement coûteux sur de gros volumes. Optimisation incrémentale à prévoir sans sacrifier la fiabilité.
+- L'exécution d'un lot n'est pas transactionnelle : une interruption peut laisser une synchronisation partiellement appliquée. Aucune corbeille ou journal de récupération pour le moment.
+- FTP est en clair : préférer SFTP pour des données sensibles. SFTP exige un `known_hosts` approuvé.
+- L'interface reprend le concept des fiches et préférences d'origine, mais **n'est pas encore une reproduction visuelle complète** : dialogues de conflits par fichier, logs, groupes, progression, fenêtre expert et menus modernes Windows 11 à compléter.
+- Les tests Win32 graphiques et FTP/SFTP natifs Windows ne sont pas encore validés sur un poste Windows.
 
-```powershell
-.\windows\install-context-menu.ps1 -ExePath "C:\path\to\synchrorep.exe"
-```
-
-## Limites
-
-L'historique texte `SYNCHROREP3` n'est pas encore compatible avec SQLite d'origine. FTP nécessite un listing MLSD exploitable. SFTP nécessite un listing POSIX accepté et un fichier known_hosts. Les suppressions et lots ne sont pas transactionnels. Les modifications de même taille effectuées dans la même seconde peuvent ne pas être détectées avant ajout d'un historique de hachage.
-
-Le portage fidèle des écrans GTK, des règles MD5, des questions par fichier, des groupes, des journaux et de la Corbeille reste à terminer. Voir [compatibilité](docs/compatibility.md).
+Voir [état de compatibilité](docs/compatibility.md) et [interface Windows](docs/windows-ui.md).
 
 ## Licence
 
-GPL-3.0 ; licence originale conservée dans [LICENSE](LICENSE). Les dépendances conservent leurs propres licences.
+Licence originale GPL-3.0 conservée dans [LICENSE](LICENSE). Les notices de licences des dépendances restent applicables.

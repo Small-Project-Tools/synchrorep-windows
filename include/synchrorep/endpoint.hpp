@@ -16,6 +16,7 @@ struct Entry {
  bool directory = false;
  std::uintmax_t size = 0;
  std::int64_t modified = 0;
+ std::string hash; // SHA-256 in hex; empty for directories or missing files.
 };
 using Snapshot = std::map<std::string, Entry>;
 

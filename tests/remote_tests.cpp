@@ -26,8 +26,14 @@ int main(){
   auto snapshot=remote.scan();assert(snapshot.count("alpha.txt")==1);
   assert(snapshot.at("alpha.txt").size==5);
   assert(engine.run(local,remote).copied==0);
+  // A same-size modification with unchanged mtime is still propagated.
+  auto remote_t=fs::last_write_time(path/"local"/"alpha.txt");
+  write(path/"local"/"alpha.txt","world");
+  fs::last_write_time(path/"local"/"alpha.txt",remote_t);
+  assert(engine.run(local,remote).copied==1);
+  assert(engine.run(local,remote).copied==0);
   std::istringstream data("REMOTE-DATA");
-  Entry e{true,false,11,0};
+  Entry e{true,false,11,0,{}};
   remote.write("remote.txt",data,e);
   assert(engine.run(local,remote).copied==1);
   assert(read(path/"local"/"remote.txt")=="REMOTE-DATA");
@@ -37,13 +43,13 @@ int main(){
   // A failed short upload must never replace an existing file.
   std::istringstream incomplete("BAD");
   bool short_rejected=false;
-  try {remote.write("remote.txt",incomplete,Entry{true,false,11,0});}
+  try {remote.write("remote.txt",incomplete,Entry{true,false,11,0,{}});}
   catch(const std::exception&) {short_rejected=true;}
   assert(short_rejected);
   assert(remote.scan().at("remote.txt").size==11);
   // A change created remotely must propagate to the local side.
   std::istringstream updated("REMOTE-UPDATED");
-  remote.write("remote.txt",updated,Entry{true,false,14,0});
+  remote.write("remote.txt",updated,Entry{true,false,14,0,{}});
   assert(engine.run(local,remote).copied==1);
   assert(read(path/"local"/"remote.txt")=="REMOTE-UPDATED");
   fs::remove(path/"local"/"alpha.txt");

@@ -1,42 +1,63 @@
-# Synchrorep : état de compatibilité
+# Matrice de compatibilité Synchrorep GNOME → Windows
 
-Référence d'origine : [sebk69/Synchrorep](https://github.com/sebk69/Synchrorep), GPL-3.0.
+Origine : [sebk69/Synchrorep](https://github.com/sebk69/Synchrorep), licence GPL-3.0.
 
-## États du moteur d'origine
+## Comparaisons et décisions
 
-| État original | Comportement actuel |
+| État du moteur GNOME | Portage actuel |
 | --- | --- |
-| _files_not_modified | None |
-| _from_modified / _to_modified | CopyLeftToRight / CopyRightToLeft |
-| _from_deleted / _to_deleted | DeleteRight / DeleteLeft si activé |
-| _both_deleted | None, suppression de l'historique |
-| _both_modified_from_recent / _both_modified_to_recent | Conflict ; options Newest/Oldest |
-| _both_modified_equal | None uniquement si le contenu est égal |
-| _comparison_error | Erreur bloquante, pas de mise à jour de l'historique |
+| `_files_not_modified` | `Action::None` |
+| `_from_modified` / `_to_modified` | Copie gauche → droite / droite → gauche |
+| `_from_deleted` / `_to_deleted` | Suppression propagée si activée |
+| `_both_deleted` | État absent, aucun transfert |
+| `_both_modified_from_recent` / `_both_modified_to_recent` | Conflit ; stratégies Newest/Oldest/Ignore |
+| `_both_modified_equal` | Aucun transfert si contenu SHA-256 identique |
+| `_comparison_error` | Exception, pas d'enregistrement de nouvel état |
 
-## Interfaces d'accès
+Le moteur original propose trois modes MD5 (`_no_md5sum`, `_both_modified_md5sum`, `_database_md5sum`). Le prototype Windows utilise désormais **SHA-256 systématique**, avec un coût plus élevé sur les protocoles distants. La reproduction exacte de ces trois options reste à faire.
 
-| Support | État |
+## Endpoints
+
+| Endpoint | État | Vérification |
+| --- | --- | --- |
+| Local Windows/UNC | Implémenté | Tests du moteur sur Linux, compilation MinGW |
+| WSL | Conversion en chemins UNC Windows | Compilation MinGW, test sur Windows/WSL manquant |
+| FTP | libcurl, MLSD, fichiers temporaires | Tests sur serveur local jetable |
+| SFTP | libcurl SSH, connu_hosts obligatoire | Tests sur serveur SFTP local jetable |
+
+Les fichiers sont lus intégralement lors du calcul SHA-256. Une erreur de listing ou un fichier incomplet bloque l'exécution avant enregistrement de l'état.
+
+## Interface et préférences
+
+| Fonction GNOME | Windows |
 | --- | --- |
-| Local | Tests automatiques Linux passés |
-| WSL | Mapping Windows UNC, non encore testé sur Windows |
-| FTP | libcurl, MLSD, transferts temporaires : intégration locale testée |
-| SFTP | libcurl SSH, vérification known_hosts : intégration locale testée |
+| Fiches de synchronisation et choix des dossiers | Édition et persistance des fiches |
+| Préférences générales | Politique conflits et suppressions |
+| Menu contextuel Nautilus | Menu classique Explorateur installable par utilisateur |
+| Identifiants réseau | Champs et Windows Credential Manager |
+| Fenêtre de progression | Non implémentée |
+| Dialogue de conflits par fichier | Liste de conflits ; politique globale |
+| Déplacer les suppressions vers la corbeille | Non implémenté |
+| Groupes de synchronisations | Non implémenté |
+| Fenêtres de logs et comportements expert | Non implémentées |
+| Extension native moderne Windows 11 | Non implémentée |
 
-La synchronisation est bloquée en cas de listing incomplet, de liens symboliques ou de métadonnées insuffisantes. FTP n'est pas chiffré : préférer SFTP.
+## Historique et récupération
 
-## Éléments restant à porter
+Le format `SYNCHROREP4` stocke pour chaque fichier les empreintes SHA-256 des deux extrémités. Les anciens formats `SYNCHROREP3` et SQLite GNOME ne sont pas interprétés : ils provoquent une erreur et nécessitent une migration contrôlée. L'historique est lié au couple ordonné d'emplacements.
 
-- Options originales d'erreurs, de conflits et de confirmations par fichier ; modes expert et groupes.
-- Comparaison MD5 configurable et détection de modifications de même taille/horodatage.
-- Historique SQLite original, journal de récupération après interruption.
-- Interface GTK reconstituée sous Windows (fiches, préférences, progression, logs, dialogues).
-- Mise à la Corbeille ; extension moderne Explorateur Windows 11 ; installeur MSI.
-- Gestion des identifiants par Windows Credential Manager.
-- Validation du build Windows complet MSVC/vcpkg.
+Les transferts sont préparés via des fichiers temporaires et vérifiés avant d'enregistrer le nouvel état. Cela **ne garantit pas une transaction** sur l'ensemble des fichiers : la corbeille, un journal durable, la récupération après interruption et la gestion des modifications concurrentes complexes restent à développer.
 
-## Garanties et limites
+## Compilation et CI
 
-Le nouveau format d'historique est SYNCHROREP3, associé au couple ordonné d'endpoints. L'exécution bloque par défaut sur les conflits simultanés. Les transferts utilisent des fichiers temporaires, mais une interruption au milieu d'un lot peut laisser une synchronisation partielle. Les suppressions ne disposent pas encore d'un journal transactionnel. Ne pas utiliser sur des données irremplaçables.
+- Linux : test du moteur, SHA-256, profils et intégrations réelles FTP/SFTP.
+- Windows : MinGW local/WSL sans libcurl, compilation croisée.
+- Windows complet : job GitLab manuel `windows-msvc-full`, nécessite un runner Windows avec MSVC/vcpkg, non encore exécuté.
 
-La CI Linux compile avec SYNCHROREP_REMOTE=ON et teste FTP/SFTP sur des serveurs temporaires. La CI MinGW compile un exécutable local/WSL seulement ; aucune validation Windows native de FTP/SFTP n'a été réalisée.
+## Priorités suivantes
+
+1. Tests d'exécution sur Windows 11 réel (Explorer + WSL) et build MSVC/vcpkg FTP/SFTP.
+2. Migration contrôlée de SQLite GNOME et des états expérimentaux précédents.
+3. Optimisation du calcul de hash distant (sans faux négatifs).
+4. Dialogues de conflits par fichier, corbeille, logs, progression et groupes.
+5. IExplorerCommand natif et MSI.

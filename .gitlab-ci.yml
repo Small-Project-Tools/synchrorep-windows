@@ -6,7 +6,7 @@ linux-tests:
   - apt-get update -qq
   - apt-get install -y -qq cmake libcurl4-openssl-dev python3 python3-pyftpdlib python3-paramiko
  script:
-  - cmake -S . -B build-remote -DSYNCHROREP_REMOTE=ON -DCMAKE_BUILD_TYPE=Debug
+  - cmake -S . -B build-remote -DSYNCHROREP_REMOTE=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS=-Wall\ -Wextra\ -Wpedantic\ -Werror
   - cmake --build build-remote --parallel
   - ctest --test-dir build-remote --output-on-failure
   - bash tests/integration/run.sh
@@ -19,6 +19,20 @@ windows-mingw:
   # This cross-built artifact supports local and WSL UNC paths only.
   # To include FTP/SFTP build with MSVC and vcpkg curl[ssh].
   - cmake -S . -B build-win -DSYNCHROREP_REMOTE=OFF -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++
-  - cmake --build build-win --target synchrorep engine_tests --parallel
+  - cmake --build build-win --target synchrorep engine_tests sha256_tests profiles_tests --parallel
  artifacts:
   paths: [build-win/synchrorep.exe]
+
+# Optional: requires an authorized Windows runner with VS C++ and vcpkg.
+# It does not block the standard pipeline when no such runner exists.
+windows-msvc-full:
+ stage: build
+ tags: [windows]
+ when: manual
+ allow_failure: true
+ script:
+  - cmake -S . -B build-msvc -A x64 -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static -DSYNCHROREP_REMOTE=ON
+  - cmake --build build-msvc --config Release --parallel
+  - ctest --test-dir build-msvc -C Release --output-on-failure
+ artifacts:
+  paths: [build-msvc/Release/synchrorep.exe]

@@ -92,6 +92,40 @@ int main(){
   Engine oldest(root/"state"/"newest.state",{ConflictPolicy::Oldest,true});
   assert(oldest.run(n,o).copied==1);
   assert(read(o/"pick.txt")=="LEFT-AGAIN");
+  // Same byte length AND restored timestamp must still be detected.
+  auto hz=root/"hz",hz2=root/"hz2";fs::create_directories(hz);fs::create_directories(hz2);
+  Engine fingerprint(root/"state"/"fingerprint.state");
+  write(hz/"touch.txt","AAAA");
+  assert(fingerprint.run(hz,hz2).copied==1);
+  auto oldtime=fs::last_write_time(hz/"touch.txt");
+  write(hz/"touch.txt","BBBB");
+  fs::last_write_time(hz/"touch.txt",oldtime);
+  assert(fingerprint.plan(hz,hz2).at(0).action==Action::CopyLeftToRight);
+  assert(fingerprint.run(hz,hz2).copied==1);
+  assert(read(hz2/"touch.txt")=="BBBB");
+  // When both ends diverge with identical size/timestamps, stop.
+  write(hz/"touch.txt","CCCC");
+  write(hz2/"touch.txt","DDDD");
+  fs::last_write_time(hz/"touch.txt",oldtime);
+  fs::last_write_time(hz2/"touch.txt",oldtime);
+  assert(fingerprint.run(hz,hz2).conflicts.size()==1);
+  assert(read(hz/"touch.txt")=="CCCC");
+  assert(read(hz2/"touch.txt")=="DDDD");
+  // Detect a changed file even when only its timestamp is restored,
+  // preventing spurious delete-versus-update decisions.
+  auto hx=root/"hx",hy=root/"hy";fs::create_directories(hx);fs::create_directories(hy);
+  Engine delhash(root/"state"/"delete-with-hash.state");
+  write(hx/"file.txt","1111");
+  assert(delhash.run(hx,hy).copied==1);
+  auto t_before=fs::last_write_time(hy/"file.txt");
+  fs::remove(hx/"file.txt");
+  write(hy/"file.txt","2222");
+  fs::last_write_time(hy/"file.txt",t_before);
+  assert(delhash.run(hx,hy).conflicts.size()==1);
+  assert(read(hy/"file.txt")=="2222");
+  // Previous history formats cannot be silently mistaken for SHA-256 state.
+  write(root/"state"/"legacy.state","SYNCHROREP3\\n");
+  assert(throws([&]{Engine(root/"state"/"legacy.state").plan(hz,hz2);}));
   // A malformed history or a symlink in the tree must fail closed.
   write(root/"state"/"bad.state","INVALID-HEADER\n");
   assert(throws([&]{Engine(root/"state"/"bad.state").run(u,v);}));
