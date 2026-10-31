@@ -114,7 +114,7 @@ void addTray(){
  info.uID=TrayId;
  info.uFlags=NIF_ICON|NIF_MESSAGE|NIF_TIP;
  info.uCallbackMessage=TrayMessage;
- info.hIcon=LoadIconW(nullptr,IDI_APPLICATION);
+ info.hIcon=LoadIconW(GetModuleHandleW(nullptr),MAKEINTRESOURCEW(101));
  wcscpy_s(info.szTip,L"Synchrorep - Mirror monitoring active");
  trayAdded=Shell_NotifyIconW(NIM_ADD,&info)!=FALSE;
 }
@@ -575,6 +575,7 @@ void openRecoveryBrowser(){
   WNDCLASSW cls{};
   cls.lpfnWndProc=recoveryProc;
   cls.hInstance=module;
+  cls.hIcon=LoadIconW(module,MAKEINTRESOURCEW(101));
   cls.hCursor=LoadCursor(nullptr,IDC_ARROW);
   cls.hbrBackground=reinterpret_cast<HBRUSH>(COLOR_WINDOW+1);
   cls.lpszClassName=L"SynchrorepRecovery";
@@ -603,8 +604,18 @@ void setExplorerMenu(bool enabled){
  const std::wstring title=L"Synchronize with Synchrorep";
  auto status=RegSetValueExW(out,nullptr,0,REG_SZ,
   reinterpret_cast<const BYTE*>(title.c_str()),static_cast<DWORD>((title.size()+1)*sizeof(wchar_t)));
+ if(status==ERROR_SUCCESS){
+  wchar_t app[MAX_PATH]{};
+  const auto length=GetModuleFileNameW(nullptr,app,MAX_PATH);
+  if(length>0&&length<MAX_PATH){
+   const auto icon=std::wstring(L"\"")+app+L"\",0";
+   status=RegSetValueExW(out,L"Icon",0,REG_SZ,
+    reinterpret_cast<const BYTE*>(icon.c_str()),
+    static_cast<DWORD>((icon.size()+1)*sizeof(wchar_t)));
+  }
+ }
  RegCloseKey(out);
- if(status!=ERROR_SUCCESS)throw std::runtime_error("Cannot store Explorer menu label");
+ if(status!=ERROR_SUCCESS)throw std::runtime_error("Cannot store Explorer menu label or icon");
  std::wstring commandKey=std::wstring(key)+L"\\command";
  if(RegCreateKeyExW(HKEY_CURRENT_USER,commandKey.c_str(),0,nullptr,0,KEY_WRITE,nullptr,&out,nullptr)!=ERROR_SUCCESS)
   throw std::runtime_error("Cannot create Explorer menu command");
@@ -861,6 +872,7 @@ LRESULT CALLBACK windowProc(HWND window,UINT message,WPARAM w,LPARAM l){
 }
 int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int show){
  WNDCLASSW wc{};wc.lpfnWndProc=windowProc;wc.hInstance=instance;
+ wc.hIcon=LoadIconW(instance,MAKEINTRESOURCEW(101));
  wc.lpszClassName=L"SynchrorepWindow";wc.hCursor=LoadCursor(nullptr,IDC_ARROW);
  wc.hbrBackground=reinterpret_cast<HBRUSH>(COLOR_WINDOW+1);
  INITCOMMONCONTROLSEX init{sizeof(init),ICC_PROGRESS_CLASS};

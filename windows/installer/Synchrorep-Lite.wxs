@@ -1,19 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- WiX 3 dialect for cross-compiled local/WSL-only MSI via wixl on Linux. -->
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-  <Product Id="0518E72C-C75B-52C8-9CBD-A0D2B4527987" Name="Synchrorep Lite" Manufacturer="Synchrorep contributors"
-           Version="0.12.2" Language="1033"
+  <Product Id="C0349D4D-39A3-5572-AB9C-5BC2230F2E4F" Name="Synchrorep Lite" Manufacturer="Synchrorep contributors"
+           Version="0.12.3" Language="1033"
            UpgradeCode="E7933186-3749-4B61-AD35-68A48EB337CD">
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"/>
     <MajorUpgrade DowngradeErrorMessage="A newer Synchrorep version is already installed."/>
     <MediaTemplate EmbedCab="yes"/>
+    <Icon Id="SynchrorepIcon" SourceFile="$(var.SourceIcon)"/>
+    <Property Id="ARPPRODUCTICON" Value="SynchrorepIcon"/>
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="INSTALLFOLDER" Name="Synchrorep">
           <Component Id="AppComponent" Guid="247755EB-32CB-5BC9-977A-C42D4D1E79C6" Win64="yes">
             <File Id="AppFile" Source="$(var.SourceExe)" Name="synchrorep.exe" KeyPath="yes">
               <Shortcut Id="StartMenuSynchrorep" Directory="ProgramMenuFolder"
-                        Name="Synchrorep Lite" WorkingDirectory="INSTALLFOLDER" Advertise="yes"/>
+                        Name="Synchrorep Lite" WorkingDirectory="INSTALLFOLDER"
+                        Advertise="yes" Icon="SynchrorepIcon" IconIndex="0"/>
             </File>
           </Component>
           <Component Id="ExtensionComponent" Guid="4D909B2C-B0A0-5292-BD39-389539EC7739" Win64="yes">

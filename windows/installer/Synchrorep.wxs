@@ -2,11 +2,13 @@
 <!-- WiX Toolset v5. Build on Windows with wix.exe and the full MSVC binary. -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="Synchrorep" Manufacturer="Synchrorep contributors"
-           Version="0.12.2" Language="1033"
+           Version="0.12.3" Language="1033"
            UpgradeCode="E7933186-3749-4B61-AD35-68A48EB337CD"
            Scope="perMachine">
     <MajorUpgrade DowngradeErrorMessage="A newer Synchrorep version is already installed." />
     <MediaTemplate EmbedCab="yes" />
+    <Icon Id="SynchrorepIcon" SourceFile="$(var.SourceIcon)" />
+    <Property Id="ARPPRODUCTICON" Value="SynchrorepIcon" />
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="Synchrorep">
         <Component Id="SynchrorepBinary" Guid="*">

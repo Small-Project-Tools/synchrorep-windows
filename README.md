@@ -1,3 +1,5 @@
+![Synchrorep](assets/synchrorep-source.png)
+
 # Synchrorep Windows
 
 Portage natif C++20 de [Synchrorep pour GNOME](https://github.com/sebk69/Synchrorep) (Sébastien Kus, 2009–2019, GPL-3.0). Objectif : **le même fonctionnement et, à terme, la même interface**, intégrés à l'Explorateur Windows, pour les dossiers locaux, WSL, FTP et SFTP.
@@ -264,3 +266,20 @@ Le MSI Lite x64 est disponible en version 0.12.2. Pendant la mise
 a niveau depuis la version 0.12.1, Synchrorep conserve aussi le
 verrou historique du couple source/cible pour prevenir un double
 demarrage entre les deux versions.
+
+
+## Icône Windows unifiée (0.12.3)
+
+Le pictogramme fourni est utilise pour l'executable Windows (ressource
+ICON 101 en 16, 24, 32, 48, 64, 128 et 256 px), les fenetres principale
+et de restauration, la zone de notification et les deux types de menus
+contextuels de l'Explorateur Windows.
+
+Le MSI inclut cette icone pour le raccourci du menu Demarrer et
+l'entree Applications installees. Les logos MSIX (44, 50 et 150 px)
+proviennent de la meme image. Un script reproductible construit tous les
+formats (scripts/build_icon_assets.py) depuis l'image source simplifiee
+(assets/synchrorep-source.png), sans bibliotheque tierce.
+
+Des tests verifient la presence des differentes tailles PNG et ICO,
+leur integrite CRC et l'icone integree dans l'executable Windows.

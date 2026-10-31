@@ -1,0 +1,3 @@
+#include <windows.h>
+// Icon 101 is the application's primary icon in the Windows resource table.
+101 ICON "assets/synchrorep.ico"

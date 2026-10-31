@@ -29,7 +29,13 @@ assert len(components) == len(files)
 assert len({component.attrib["Guid"] for component in components}) == len(files)
 assert all(component.attrib["Guid"] != "*" for component in components)
 assert len(product.findall(".//w:ComponentRef", ns)) == len(files)
-assert len(product.findall(".//w:Shortcut", ns)) == 1
+shortcuts=product.findall(".//w:Shortcut",ns)
+assert len(shortcuts)==1
+assert shortcuts[0].attrib["Icon"]=="SynchrorepIcon"
+icon=product.find("w:Icon",ns)
+assert icon is not None and icon.attrib["SourceFile"]=="$(var.SourceIcon)"
+arp=product.find("w:Property[@Id='ARPPRODUCTICON']",ns)
+assert arp is not None and arp.attrib["Value"]=="SynchrorepIcon"
 assert product.find("w:Package", ns).attrib["InstallScope"] == "perMachine"
 assert (root / "windows/installer/Synchrorep.wxs").exists()
 # Installing the application must NEVER implicitly enable a destructive mirror.

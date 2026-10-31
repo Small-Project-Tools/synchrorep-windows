@@ -164,3 +164,12 @@ Le verrou historique source/cible est conserve pendant les mises a jour
 pour eviter une double execution du meme profil avec 0.12.1 et 0.12.2.
 Les alias reseau vers un meme volume restent une limite ; ils doivent
 etre evites manuellement.
+
+
+## Icones Windows (0.12.3)
+
+L'executable, l'icone de zone de notification, les commandes Explorer,
+le MSI et les logos du package sparse partagent le pictogramme fourni.
+Une ressource Win32 numerotee 101 est embarquee via le compilateur RC
+des toolchains MinGW et MSVC. Les tailles d'icone sont verifiees par
+tests statiques, et la CI Wine verifie l'icone de l'executable.

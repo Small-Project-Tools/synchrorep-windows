@@ -17,8 +17,11 @@ void write(const fs::path& path,const std::string& text){
 void write_atomic(const fs::path& path,const std::string& text){
  // Model an editor's atomic-save operation. In-place truncation may race
  // with a simultaneous SHA-256 scan and correctly stop the mirror.
- auto temporary=path;
- temporary+=".draft";
+ // Keep temporary editor files OUTSIDE the source being mirrored.
+ // Otherwise monitoring may see transient files as real user data.
+ auto temporary=fs::temp_directory_path()/(
+   "synchrorep-editor-"+std::to_string(
+    std::chrono::steady_clock::now().time_since_epoch().count())+".tmp");
  write(temporary,text);
  fs::rename(temporary,path);
 }
@@ -30,7 +33,9 @@ bool throws(const auto& callback){
  try{callback();return false;}catch(const std::exception&){return true;}
 }
 void await(const auto& condition){
- for(int i=0;i<150;++i){
+ // Slow shared CI hosts can take longer than local test environments
+ // to complete a full hashing reconciliation.
+ for(int i=0;i<400;++i){
   if(condition())return;
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
  }

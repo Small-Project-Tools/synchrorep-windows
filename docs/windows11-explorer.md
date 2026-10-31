@@ -105,3 +105,15 @@ avant publication.
 Le job manuel `windows-msvc-full` produit le MSI avec les deux binaires.
 Le job `windows-sparse-unsigned` prépare un package MSIX non signé à
 signer et tester séparément. Ces jobs nécessitent un runner Windows.
+
+
+## Identite visuelle de l'extension (0.12.3)
+
+La commande moderne IExplorerCommand::GetIcon renvoie le chemin de
+l'executable et l'index d'icone 0. Le menu classique utilise la valeur
+Icon enregistre dans HKCU. Le MSI associe la meme icone au raccourci du
+menu Demarrer et a l'entree Applications installees.
+
+Le paquet MSIX sparse utilise egalement les logos PNG generes depuis
+le meme visuel. Les essais natifs sous Windows 11 restent necessaires
+pour valider le rendu de ces integrations.

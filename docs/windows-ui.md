@@ -99,3 +99,11 @@ Synchrorep Lite. Cette edition permet les miroirs locaux/WSL et le demarrage
 automatique par profil, mais ne contient pas FTP/SFTP. Le nom de la fenetre
 et le libelle des dossiers indiquent cette limitation. Voir
 [demarrage automatique](automatic-startup.md).
+
+
+## Identite visuelle (0.12.3)
+
+La nouvelle icone apparait dans la fenetre principale, la fenetre de
+restauration, le menu contextuel et la zone de notification. Le
+raccourci du menu Demarrer et l'entree Applications installees
+sont egalement associes au pictogramme. Test Win32 programme en CI.

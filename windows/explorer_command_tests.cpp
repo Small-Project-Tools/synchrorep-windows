@@ -30,6 +30,14 @@ int main(){
  assert(command->GetTitle(nullptr,&title)==S_OK);
  assert(title&&std::wcscmp(title,L"Synchronize with Synchrorep")==0);
  CoTaskMemFree(title);
+ LPWSTR icon=nullptr;
+ assert(command->GetIcon(nullptr,nullptr)==E_POINTER);
+ assert(command->GetIcon(nullptr,&icon)==S_OK);
+ assert(icon);
+ const std::wstring iconLocation(icon);
+ CoTaskMemFree(icon);
+ assert(iconLocation.size()>2&&iconLocation.substr(iconLocation.size()-2)==L",0");
+ assert(iconLocation.find(L"synchrorep.exe")!=std::wstring::npos);
  EXPCMDSTATE state=ECS_ENABLED;
  assert(command->GetState(nullptr,FALSE,&state)==S_OK && state==ECS_HIDDEN);
  GUID canonical{};

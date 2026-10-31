@@ -19,4 +19,8 @@ assert {item.attrib["Id"] for item in files} == {"MainExecutable", "ExplorerExte
 assert {item.attrib["Source"] for item in files} == {"$(var.SourceExe)", "$(var.SourceExplorerDll)", "$(var.SourceLicense)"}
 assert len(package.findall(".//w:Component", ns)) == len(files)
 assert len(package.findall(".//w:ComponentRef", ns)) == len(files)
+icon=package.find("w:Icon",ns)
+assert icon is not None and icon.attrib["SourceFile"]=="$(var.SourceIcon)"
+arp=package.find("w:Property[@Id='ARPPRODUCTICON']",ns)
+assert arp is not None and arp.attrib["Value"]=="SynchrorepIcon"
 print("WiX MSI metadata validated")

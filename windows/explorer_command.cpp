@@ -12,6 +12,7 @@
 #include <new>
 #include <cwchar>
 #include <cstring>
+#include <filesystem>
 #include <string>
 
 namespace {
@@ -79,8 +80,15 @@ public:
  HRESULT STDMETHODCALLTYPE GetIcon(IShellItemArray*,LPWSTR* icon)override{
   if(!icon)return E_POINTER;
   *icon=nullptr;
-  // Explorer may use the app's package icon.
-  return E_NOTIMPL;
+  wchar_t module[MAX_PATH]{};
+  const DWORD count=GetModuleFileNameW(g_module,module,MAX_PATH);
+  if(count==0||count>=MAX_PATH)
+   return HRESULT_FROM_WIN32(GetLastError()==ERROR_SUCCESS?ERROR_INSUFFICIENT_BUFFER:GetLastError());
+  const auto executable=std::filesystem::path(module).parent_path()/L"synchrorep.exe";
+  std::error_code ec;
+  if(!std::filesystem::is_regular_file(executable,ec))
+   return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+  return duplicate_string((executable.wstring()+L",0").c_str(),icon);
  }
  HRESULT STDMETHODCALLTYPE GetToolTip(IShellItemArray*,LPWSTR* tip)override{
   return duplicate_string(L"Open Synchrorep configuration for this folder",tip);
