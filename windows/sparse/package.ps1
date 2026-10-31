@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory=$true)][string]$ApplicationDirectory,
-    [string]$Output = "Synchrorep.Windows.0.13.3.sparse.msix"
+    [string]$Output = "Synchrorep.Windows.0.13.4.sparse.msix"
 )
 $ErrorActionPreference = 'Stop'
 $source = (Resolve-Path -LiteralPath $ApplicationDirectory).Path

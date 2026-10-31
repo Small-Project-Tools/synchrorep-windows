@@ -19,8 +19,8 @@ Portage natif C++20 de [Synchrorep pour GNOME](https://github.com/sebk69/Synchro
 
 ## Installation Windows
 
-Récupérer le fichier `synchrorep-windows-0.13.3-x64.msi` dans les
-[artefacts de la dernière compilation Windows](https://git.small-project.dev/pub/synchrorep-windows/-/jobs/artifacts/main/browse/build-win?job=windows-mingw).
+Récupérer le fichier `synchrorep-windows-0.13.4-x64.msi` dans les
+[artefacts de la dernière compilation Windows](https://git.small-project.dev/pub/desktop/synchrorep-windows/-/jobs/artifacts/main/browse/build-win?job=windows-mingw).
 
 La CI Linux/MinGW construit désormais **l’unique édition complète** en utilisant
 la variante Windows **libcurl/OpenSSL + libssh2** fournie par MSYS2.
@@ -128,11 +128,11 @@ L'exécutable Synchrorep dépend de DLL réseau, notamment `libcurl-4.dll`,
 
 Deux distributions complètes sont proposées :
 
-- `synchrorep-windows-0.13.3-x64.msi` : installation standard avec
+- `synchrorep-windows-0.13.4-x64.msi` : installation standard avec
   menu contextuel Explorer et toutes les DLL au même endroit
   (`C:\Program Files\Synchrorep`).
-- `synchrorep-windows-0.13.3-x64-portable.zip` : extraire **toute**
-  l'archive dans un dossier avant d'exécuter `Synchrorep-0.13.3\synchrorep.exe`.
+- `synchrorep-windows-0.13.4-x64-portable.zip` : extraire **toute**
+  l'archive dans un dossier avant d'exécuter `Synchrorep-0.13.4\synchrorep.exe`.
   Tous les fichiers DLL doivent rester à côté de l'exécutable.
 
 La CI refuse dorénavant de publier une archive portable incomplète.
@@ -145,7 +145,7 @@ réinstaller le MSI. Les anciens raccourcis ou une copie isolée de
 `synchrorep.exe` peuvent encore pointer ailleurs.
 
 
-## Lancement depuis l’Explorateur — comportement GNOME rétabli (0.13.3)
+## Lancement depuis l’Explorateur — comportement GNOME rétabli (0.13.4)
 
 Le menu contextuel **Synchronize with Synchrorep** déclenche une action :
 
