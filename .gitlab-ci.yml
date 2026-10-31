@@ -16,7 +16,7 @@ windows-mingw:
  stage: build
  image: debian:bookworm
  before_script:
-  - apt-get update -qq && apt-get install -y -qq cmake g++-mingw-w64-x86-64-posix wixl
+  - apt-get update -qq && apt-get install -y -qq cmake g++-mingw-w64-x86-64-posix wixl python3
  script:
   # This cross-built artifact supports local and WSL UNC paths only.
   # To include FTP/SFTP build with MSVC and vcpkg curl[ssh].
@@ -68,7 +68,6 @@ windows-wine-smoke:
  needs:
   - job: windows-mingw
     artifacts: true
- when: manual
  allow_failure: true
  before_script:
   - apt-get update -qq
@@ -81,4 +80,8 @@ windows-wine-smoke:
   - xvfb-run -a wine build-win/recovery_tests.exe
   - xvfb-run -a wine msiexec /i build-win/synchrorep-windows-0.12.1-lite-x64.msi /qn
   - export SYNCHROREP_EXE="$WINEPREFIX/drive_c/Program Files/Synchrorep/synchrorep.exe"
+  - test -f "$SYNCHROREP_EXE"
+  - cmp build-win/synchrorep.exe "$SYNCHROREP_EXE"
   - xvfb-run -a bash tests/wine_autostart_smoke.sh
+  - xvfb-run -a wine msiexec /x build-win/synchrorep-windows-0.12.1-lite-x64.msi /qn
+  - test ! -e "$SYNCHROREP_EXE"
