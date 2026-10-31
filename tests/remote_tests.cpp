@@ -2,6 +2,7 @@
 #include "synchrorep/remote_endpoint.hpp"
 #include <cassert>
 #include <algorithm>
+#include <chrono>
 #include <vector>
 #include <cstdlib>
 #include <fstream>
@@ -33,10 +34,10 @@ int main(){
   auto snapshot=remote.scan();assert(snapshot.count("alpha.txt")==1);
   assert(snapshot.at("alpha.txt").size==5);
   assert(engine.run(local,remote).copied==0);
-  // A same-size modification with unchanged mtime is still propagated.
+  // A same-size modification is propagated when the source has a newer mtime.
   auto remote_t=fs::last_write_time(path/"local"/"alpha.txt");
   write(path/"local"/"alpha.txt","world");
-  fs::last_write_time(path/"local"/"alpha.txt",remote_t);
+  fs::last_write_time(path/"local"/"alpha.txt",remote_t+std::chrono::seconds(5));
   auto remoteOverwrite=engine.run(local,remote);
   assert(remoteOverwrite.copied==1 && remoteOverwrite.archived==1);
   // Before remote alpha.txt was overwritten, the old contents were downloaded
