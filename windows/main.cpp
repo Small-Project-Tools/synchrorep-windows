@@ -9,6 +9,8 @@
 #include <vector>
 #include "async_job.hpp"
 #include <shellapi.h>
+#include <shlobj.h>
+#include "synchrorep/recovery_catalog.hpp"
 #include <wincred.h>
 #include <algorithm>
 #include <cstdint>
@@ -43,6 +45,11 @@ std::unique_ptr<synchrorep::winui::AsyncJob> job;
 bool busy=false;
 std::map<std::string,ConflictChoice> overrides;
 std::vector<Decision> shownDecisions;
+HWND recoveryWindow=nullptr;
+HWND recoveryList=nullptr;
+HWND recoveryInfo=nullptr;
+std::vector<RecoveryItem> recoveryRecords;
+
 struct JobSettings {
  Profile profile;
  std::string leftUser,leftPassword,rightUser,rightPassword;
@@ -334,6 +341,129 @@ void onFinished(std::unique_ptr<synchrorep::winui::FinishedEvent> result){
   MessageBoxW(mainWindow,text.c_str(),L"Synchrorep",MB_OK|MB_ICONINFORMATION);
  }else set(IdStatus,L"Preview complete. Select a conflict to choose its resolution.");
 }
+enum RecoveryControl : int {
+ RecoveryList=501,RecoveryRefresh=502,RecoveryExport=503,RecoveryFolder=504
+};
+void reloadRecovery(){
+ auto archive=appDirectory()/"recovery";
+ auto found=RecoveryCatalog::list(archive);
+ recoveryRecords=std::move(found);
+ SendMessageW(recoveryList,LB_RESETCONTENT,0,0);
+ for(const auto& item:recoveryRecords){
+  auto run=item.archive_side.parent_path().filename().wstring();
+  auto display=L"["+run+L" / "+toWide(item.side)+L"] "+toWide(item.relative)+
+   L"  ("+toWide(item.reason)+L")";
+  SendMessageW(recoveryList,LB_ADDSTRING,0,reinterpret_cast<LPARAM>(display.c_str()));
+ }
+ auto info=std::to_wstring(recoveryRecords.size())+
+   L" archived items. Select a file, then export to a chosen folder.";
+ SetWindowTextW(recoveryInfo,info.c_str());
+}
+std::filesystem::path chooseRecoveryFolder(HWND owner){
+ BROWSEINFOW config{};
+ config.hwndOwner=owner;
+ config.lpszTitle=L"Choose a folder for exported recovery files (existing files will not be overwritten)";
+ config.ulFlags=BIF_RETURNONLYFSDIRS|BIF_NEWDIALOGSTYLE;
+ LPITEMIDLIST item=SHBrowseForFolderW(&config);
+ if(!item)return {};
+ wchar_t folder[MAX_PATH]{};
+ auto success=SHGetPathFromIDListW(item,folder);
+ CoTaskMemFree(item);
+ if(!success)throw std::runtime_error("Could not resolve selected export folder");
+ return folder;
+}
+void exportRecoveryItem(HWND window){
+ auto selected=SendMessageW(recoveryList,LB_GETCURSEL,0,0);
+ if(selected<0 || static_cast<std::size_t>(selected)>=recoveryRecords.size()){
+  MessageBoxW(window,L"Select an archived item first.",L"Synchrorep recovery",MB_ICONINFORMATION);
+  return;
+ }
+ const auto item=recoveryRecords[static_cast<std::size_t>(selected)];
+ const auto destination=chooseRecoveryFolder(window);
+ if(destination.empty())return;
+ std::wstring summary=L"Export "+toWide(item.relative)+L" from "+toWide(item.side)+
+  L" to "+destination.wstring()+
+  L"?\n\nThe original synchronized locations will NOT be modified.";
+ if(MessageBoxW(window,summary.c_str(),L"Confirm recovery export",
+                MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2)!=IDYES)return;
+ const auto exported=RecoveryCatalog::export_item(item,destination);
+ std::wstring done=L"Recovery exported to:\n"+exported.wstring()+
+  L"\n\nInspect the file before manually restoring it to the original location.";
+ MessageBoxW(window,done.c_str(),L"Synchrorep recovery",MB_OK|MB_ICONINFORMATION);
+}
+LRESULT CALLBACK recoveryProc(HWND window,UINT message,WPARAM w,LPARAM l){
+ switch(message){
+ case WM_CREATE:{
+  CreateWindowW(L"STATIC",L"Archived versions (read-only; exports never overwrite files)",
+    WS_CHILD|WS_VISIBLE,16,15,735,22,window,nullptr,GetModuleHandleW(nullptr),nullptr);
+  recoveryList=CreateWindowExW(WS_EX_CLIENTEDGE,L"LISTBOX",L"",
+    WS_CHILD|WS_VISIBLE|WS_VSCROLL|WS_HSCROLL|LBS_NOTIFY,
+    16,43,750,318,window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(RecoveryList)),
+    GetModuleHandleW(nullptr),nullptr);
+  recoveryInfo=CreateWindowW(L"STATIC",L"",WS_CHILD|WS_VISIBLE,16,372,745,28,
+    window,nullptr,GetModuleHandleW(nullptr),nullptr);
+  CreateWindowW(L"BUTTON",L"Refresh",WS_CHILD|WS_VISIBLE|WS_TABSTOP,
+    16,415,145,34,window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(RecoveryRefresh)),
+    GetModuleHandleW(nullptr),nullptr);
+  CreateWindowW(L"BUTTON",L"Export selected",WS_CHILD|WS_VISIBLE|WS_TABSTOP,
+    173,415,185,34,window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(RecoveryExport)),
+    GetModuleHandleW(nullptr),nullptr);
+  CreateWindowW(L"BUTTON",L"Open archive folder",WS_CHILD|WS_VISIBLE|WS_TABSTOP,
+    370,415,194,34,window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(RecoveryFolder)),
+    GetModuleHandleW(nullptr),nullptr);
+  return 0;
+ }
+ case WM_COMMAND:{
+  try {
+   switch(LOWORD(w)){
+   case RecoveryRefresh:reloadRecovery();break;
+   case RecoveryExport:exportRecoveryItem(window);break;
+   case RecoveryFolder:{
+    auto folder=appDirectory()/"recovery";
+    std::filesystem::create_directories(folder);
+    if(reinterpret_cast<INT_PTR>(ShellExecuteW(window,L"open",folder.c_str(),
+        nullptr,nullptr,SW_SHOWNORMAL))<=32)
+      throw std::runtime_error("Cannot open archive folder");
+    break;
+   }
+   default:break;
+   }
+  }catch(const std::exception& e){
+   MessageBoxA(window,e.what(),"Recovery error",MB_OK|MB_ICONERROR);
+  }
+  return 0;
+ }
+ case WM_DESTROY:recoveryWindow=nullptr;recoveryList=nullptr;recoveryInfo=nullptr;
+  recoveryRecords.clear();return 0;
+ default:return DefWindowProcW(window,message,w,l);
+ }
+}
+void openRecoveryBrowser(){
+ if(recoveryWindow && IsWindow(recoveryWindow)){
+  ShowWindow(recoveryWindow,SW_SHOWNORMAL);
+  SetForegroundWindow(recoveryWindow);return;
+ }
+ static bool registered=false;
+ const auto module=GetModuleHandleW(nullptr);
+ if(!registered){
+  WNDCLASSW cls{};
+  cls.lpfnWndProc=recoveryProc;
+  cls.hInstance=module;
+  cls.hCursor=LoadCursor(nullptr,IDC_ARROW);
+  cls.hbrBackground=reinterpret_cast<HBRUSH>(COLOR_WINDOW+1);
+  cls.lpszClassName=L"SynchrorepRecovery";
+  if(!RegisterClassW(&cls) && GetLastError()!=ERROR_CLASS_ALREADY_EXISTS)
+   throw std::runtime_error("Could not register recovery window");
+  registered=true;
+ }
+ recoveryWindow=CreateWindowW(L"SynchrorepRecovery",L"Synchrorep - Recover previous versions",
+   WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
+   CW_USEDEFAULT,CW_USEDEFAULT,800,505,mainWindow,nullptr,module,nullptr);
+ if(!recoveryWindow)throw std::runtime_error("Could not create recovery window");
+ try{reloadRecovery();}
+ catch(...){DestroyWindow(recoveryWindow);throw;}
+ ShowWindow(recoveryWindow,SW_SHOWNORMAL);
+}
 void setExplorerMenu(bool enabled){
  const wchar_t* key=L"Software\\Classes\\Directory\\shell\\Synchrorep";
  if(!enabled){
@@ -412,9 +542,9 @@ void onCommand(int id){
  }
  case IdExplorer:
   setExplorerMenu(SendMessageW(controls[IdExplorer],BM_GETCHECK,0,0)==BST_CHECKED);break;
- case IdOpenRecovery:
+ case IdOpenRecovery:openRecoveryBrowser();break;
  case IdOpenLogs:{
-  auto folder=appDirectory()/(id==IdOpenRecovery?L"recovery":L"logs");
+  auto folder=appDirectory()/L"logs";
   std::filesystem::create_directories(folder);
   auto launched=reinterpret_cast<INT_PTR>(ShellExecuteW(mainWindow,L"open",
     folder.c_str(),nullptr,nullptr,SW_SHOWNORMAL));
@@ -441,7 +571,7 @@ void initializeControls(HWND h){
  place(h,L"BUTTON",L"Preserve old versions",BS_AUTOCHECKBOX|WS_TABSTOP,
        18,566,274,24,IdProtect);
  SendMessageW(controls[IdProtect],BM_SETCHECK,BST_CHECKED,0);
- button(h,L"Open recovery archive",IdOpenRecovery,18,603,274);
+ button(h,L"Browse / restore archives",IdOpenRecovery,18,603,274);
  button(h,L"Open execution logs",IdOpenLogs,18,638,274);
 
  label(h,L"Profile name",320,16);

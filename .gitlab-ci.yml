@@ -9,6 +9,7 @@ linux-tests:
   - cmake -S . -B build-remote -DSYNCHROREP_REMOTE=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS=-Wall\ -Wextra\ -Wpedantic\ -Werror
   - cmake --build build-remote --parallel
   - ctest --test-dir build-remote --output-on-failure
+  - python3 tests/installer_manifest_test.py
   - bash tests/integration/run.sh
 windows-mingw:
  stage: build
@@ -19,7 +20,7 @@ windows-mingw:
   # This cross-built artifact supports local and WSL UNC paths only.
   # To include FTP/SFTP build with MSVC and vcpkg curl[ssh].
   - cmake -S . -B build-win -DSYNCHROREP_REMOTE=OFF -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++-posix
-  - cmake --build build-win --target synchrorep engine_tests sha256_tests profiles_tests recovery_tests --parallel
+  - cmake --build build-win --target synchrorep engine_tests sha256_tests profiles_tests recovery_tests recovery_catalog_tests --parallel
   - x86_64-w64-mingw32-objdump -p build-win/synchrorep.exe | grep 'DLL Name' 
  artifacts:
   paths: [build-win/synchrorep.exe]
@@ -35,5 +36,8 @@ windows-msvc-full:
   - cmake -S . -B build-msvc -A x64 -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static -DSYNCHROREP_REMOTE=ON
   - cmake --build build-msvc --config Release --parallel
   - ctest --test-dir build-msvc -C Release --output-on-failure
+  - if (-not (Get-Command wix -ErrorAction SilentlyContinue)) { dotnet tool install --global wix --version '5.*' }
+  - $env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
+  - wix build -arch x64 "-dSourceExe=build-msvc/Release/synchrorep.exe" "-dSourceLicense=LICENSE" windows/installer/Synchrorep.wxs -o synchrorep-windows-0.8.0-x64.msi
  artifacts:
-  paths: [build-msvc/Release/synchrorep.exe]
+  paths: [build-msvc/Release/synchrorep.exe, synchrorep-windows-0.8.0-x64.msi]

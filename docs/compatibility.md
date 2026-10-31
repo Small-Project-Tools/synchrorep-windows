@@ -85,3 +85,11 @@ distant est telechargee depuis FTP/SFTP avant l'operation destructive.
 Les journaux JSONL et les archives sont accessibles dans l'interface.
 Ce n'est pas la Corbeille native Windows, et une restauration reste manuelle.
 Voir [archives de recuperation](recovery-archive.md).
+
+## Restauration guidee (0.8)
+
+Une fenetre Windows affiche les archives et permet une exportation vers un
+dossier local, sans ecrasement et avec controle SHA-256. Une restauration
+directe sur l'endpoint d'origine, la corbeille Windows et les groupes de
+restauration restent a implementer. Un manifeste WiX prepare un MSI, mais
+le build MSVC/vcpkg/WiX doit encore etre valide sur runner Windows.

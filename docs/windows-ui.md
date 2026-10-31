@@ -32,7 +32,7 @@ En cas de synchronisation interrompue, cocher Resume interrupted run apres exame
 Une fiche de synchronisation contient maintenant la preference **Preserve old
 versions** (activee par defaut). Les fichiers remplaces ou supprimes sur les
 endpoints locaux, WSL, FTP ou SFTP sont sauvegardes dans l'archive locale avant
-leur modification. Les boutons **Open recovery archive** et **Open execution
+leur modification. Les boutons **Browse / restore archives** et **Open execution
 logs** ouvrent les emplacements locaux dans l'Explorateur.
 
 Les profils au format SYNCHROREP-PROFILES1 sont lus automatiquement en activant
@@ -40,3 +40,12 @@ la protection ; toute nouvelle sauvegarde de profil utilise le format
 SYNCHROREP-PROFILES2.
 
 Voir [le guide de restauration](recovery-archive.md).
+
+
+## Navigateur des archives (0.8)
+
+**Browse / restore archives** ouvre une fenetre listant les anciennes versions
+et leur execution. **Export selected** demande le dossier de destination puis
+controle l'integrite avant copie. Il n'ecrase jamais un fichier deja present.
+Cette operation n'est pas une restauration directe dans les dossiers synchronises
+et ne peut pas encore etre automatisee en lot.

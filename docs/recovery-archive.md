@@ -44,13 +44,19 @@ relatif, répertoire (0/1), taille, empreinte SHA-256 et chemin dans l'archive.
 ## Restauration manuelle
 
 1. Arrêter toute synchronisation de cette paire d'emplacements.
-2. Dans Synchrorep Windows, utiliser **Open recovery archive**.
-3. Identifier la bonne synchronisation et le bon côté grâce à
-   `manifest.tsv`. Vérifier le contenu et l'empreinte avant restauration.
-4. Copier manuellement le fichier depuis `data/<chemin>` vers son emplacement
-   original (local, WSL ou serveur distant via un outil approprié).
-5. Relancer **Preview** avant toute nouvelle synchronisation. Les divergences
-   peuvent être classées en conflit et nécessiter une résolution explicite.
+2. Dans Synchrorep Windows, utiliser **Browse / restore archives**.
+3. Sélectionner une ancienne version (côté et exécution clairement indiqués).
+4. Cliquer **Export selected**, choisir un dossier local et confirmer.
+   Le logiciel relit le manifeste, refuse les liens symboliques ou chemins
+   dangereux, vérifie le SHA-256 puis exporte **sans écraser**.
+5. Examiner le fichier exporté et le copier manuellement à son emplacement
+   original (local, WSL ou distant via un outil approprié).
+6. Relancer **Preview** avant une nouvelle synchronisation ; les divergences
+   peuvent nécessiter une résolution explicite des conflits.
+
+Pour contrôler l'archive d'origine, le navigateur fournit aussi le bouton
+**Open archive folder**. Il n'existe pas encore de restauration directe vers
+un serveur distant ni de restauration de plusieurs entrées en une opération.
 
 Ne pas renommer ni supprimer les archives lorsque la restauration n'est pas
 encore terminée. Aucun mécanisme de purge automatique n'est implémenté.

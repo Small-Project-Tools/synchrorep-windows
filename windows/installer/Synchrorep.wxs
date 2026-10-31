@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- WiX Toolset v5. Build on Windows with wix.exe and the full MSVC binary. -->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Synchrorep" Manufacturer="Synchrorep contributors"
+           Version="0.8.0" Language="1033"
+           UpgradeCode="E7933186-3749-4B61-AD35-68A48EB337CD"
+           Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer Synchrorep version is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Synchrorep">
+        <Component Id="SynchrorepBinary" Guid="*">
+          <File Id="MainExecutable" Source="$(var.SourceExe)" KeyPath="yes" />
+        </Component>
+        <Component Id="SynchrorepLicense" Guid="*">
+          <File Id="LicenseDocument" Source="$(var.SourceLicense)" Name="LICENSE" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="MainFeature" Title="Synchrorep" Level="1">
+      <ComponentRef Id="SynchrorepBinary" />
+      <ComponentRef Id="SynchrorepLicense" />
+    </Feature>
+  </Package>
+</Wix>

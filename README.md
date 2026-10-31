@@ -109,3 +109,23 @@ automatiquement. Cette fonction n'utilise **pas** la Corbeille native
 de Windows ; la restauration est encore manuelle.
 
 Consulter [le guide de restauration](docs/recovery-archive.md).
+
+
+## Restauration guidee (0.8)
+
+Depuis la fenetre principale Windows, choisir **Browse / restore archives**.
+Selectionner une ancienne version (nom du fichier, cote, execution et motif),
+puis **Export selected**. Choisir un dossier local et confirmer l'exportation.
+Le logiciel valide le manifeste et le SHA-256 et **refuse d'ecraser un fichier**.
+Il ne restaure pas directement un dossier synchronise : verifier l'export, puis
+copier manuellement la version retenue. Cette precaution evite de declencher
+une modification distante accidentelle.
+
+## Installeur MSI (preparation)
+
+Le manifeste WiX est dans `windows/installer/Synchrorep.wxs`. Le job manuel
+`windows-msvc-full` est configure pour construire l'application complete
+(FTP/SFTP via vcpkg), executer les tests, puis generer un MSI avec WiX 5.
+Ce job requiert un runner Windows avec Visual Studio, .NET et WiX 5 ; il
+n'a pas encore ete valide sur une machine Windows. L'artefact MinGW Linux
+reste limite aux endpoints locaux/WSL.
