@@ -13,6 +13,7 @@
 #include "async_job.hpp"
 #include <shellapi.h>
 #include <shlobj.h>
+#include <shobjidl.h>
 #include "synchrorep/recovery_catalog.hpp"
 #include <wincred.h>
 #include <algorithm>
@@ -29,6 +30,7 @@
 #include "synchrorep/mirror_monitor.hpp"
 #include "startup_registry.hpp"
 #include "synchrorep/startup_profiles.hpp"
+#include "synchrorep/explorer_launch.hpp"
 
 namespace {
 using namespace synchrorep;
@@ -888,6 +890,84 @@ LRESULT CALLBACK windowProc(HWND window,UINT message,WPARAM w,LPARAM l){
  default:return DefWindowProcW(window,message,w,l);
  }
 }
+// Explorer's "Synchronize with Synchrorep" command is an action, not
+// a shortcut to the settings window. The original GNOME app selects a
+// second folder and immediately executes the new configuration.
+std::optional<std::wstring> chooseDestinationFolder(HWND owner,
+                                                     const std::wstring& source){
+ IFileOpenDialog* native=nullptr;
+ const auto hr=CoCreateInstance(CLSID_FileOpenDialog,nullptr,CLSCTX_INPROC_SERVER,
+                                IID_PPV_ARGS(&native));
+ if(FAILED(hr))throw std::runtime_error("Cannot open Windows destination folder picker");
+ const std::unique_ptr<IFileOpenDialog,void(*)(IFileOpenDialog*)> dialog(
+  native,[](IFileOpenDialog* ptr){if(ptr)ptr->Release();});
+ DWORD options=0;
+ if(FAILED(dialog->GetOptions(&options)) ||
+    FAILED(dialog->SetOptions(options|FOS_PICKFOLDERS|FOS_FORCEFILESYSTEM|
+                             FOS_PATHMUSTEXIST|FOS_NOCHANGEDIR)))
+  throw std::runtime_error("Cannot configure destination folder picker");
+ const auto title=L"Choose the folder to synchronize with "+source;
+ dialog->SetTitle(title.c_str());
+ dialog->SetOkButtonLabel(L"Synchronize");
+ const auto showResult=dialog->Show(owner);
+ if(showResult==HRESULT_FROM_WIN32(ERROR_CANCELLED))return std::nullopt;
+ if(FAILED(showResult))throw std::runtime_error("Could not choose destination folder");
+ IShellItem* selected=nullptr;
+ if(FAILED(dialog->GetResult(&selected)))
+  throw std::runtime_error("Cannot resolve destination folder");
+ const std::unique_ptr<IShellItem,void(*)(IShellItem*)> item(
+  selected,[](IShellItem* ptr){if(ptr)ptr->Release();});
+ PWSTR path=nullptr;
+ if(FAILED(item->GetDisplayName(SIGDN_FILESYSPATH,&path))||!path)
+  throw std::runtime_error("Destination must be a local or network filesystem folder");
+ std::wstring destination(path);
+ CoTaskMemFree(path);
+ return destination;
+}
+void beginExplorerSynchronization(HWND window,const std::wstring& sourcePath){
+ const std::filesystem::path source(sourcePath);
+ if(!std::filesystem::is_directory(source))
+  throw std::runtime_error("Selected Explorer source must be an existing directory");
+ const auto sourceUtf8=toUtf8(sourcePath);
+ int found=explorer_profile_index(profiles,sourceUtf8);
+ if(found>=0){
+  loadProfile(found);
+  // Restore saved credentials before starting an existing FTP/SFTP profile.
+  // This is needed for Explorer's one-click execution path.
+  (void)loadCredential(IdLeft,IdLeftUser,IdLeftPassword);
+  (void)loadCredential(IdRight,IdRightUser,IdRightPassword);
+  showMainWindow();
+  startSync(true);
+  return;
+ }
+ // No saved configuration: offer a native Windows folder selection dialog.
+ // Cancellation MUST NOT create a profile or launch an operation.
+ const auto destination=chooseDestinationFolder(window,sourcePath);
+ if(!destination){
+  DestroyWindow(window);
+  return;
+ }
+ const std::filesystem::path target(*destination);
+ if(!std::filesystem::is_directory(target))
+  throw std::runtime_error("Selected destination must be an existing directory");
+ // Resolve junctions/reparse points so two nested aliases cannot start
+ // a recursive synchronization, even if lexical paths look different.
+ const auto canonicalSource=std::filesystem::canonical(source);
+ const auto canonicalTarget=std::filesystem::canonical(target);
+ if(mirror_targets_overlap(toUtf8(canonicalSource.wstring()),
+                            toUtf8(canonicalTarget.wstring())))
+  throw std::runtime_error("Source and destination must be different, non-nested folders");
+ Profile profile=explorer_new_profile(profiles,sourceUtf8,toUtf8(*destination));
+ // Persist defaults BEFORE the first synchronization so it can be resumed.
+ // This also guarantees that the next Explorer invocation reuses the profile.
+ auto saved=profiles;
+ saved.push_back(profile);
+ ProfileStore(appDirectory()/"profiles.dat").save(saved);
+ profiles=std::move(saved);
+ loadProfile(static_cast<int>(profiles.size()-1));
+ showMainWindow();
+ startSync(true);
+}
 }
 int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int show){
  // Headless check of the ACTUAL executable and runtime DLLs.
@@ -907,6 +987,8 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int show){
   }
   return ftp&&sftp?0:3;
  }
+ const HRESULT comStatus=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
+ if(FAILED(comStatus))return 4;
  WNDCLASSW wc{};wc.lpfnWndProc=windowProc;wc.hInstance=instance;
  wc.hIcon=LoadIconW(instance,MAKEINTRESOURCEW(101));
  wc.lpszClassName=L"SynchrorepWindow";wc.hCursor=LoadCursor(nullptr,IDC_ARROW);
@@ -917,7 +999,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int show){
  const wchar_t* title=L"Synchrorep - Settings";
  HWND window=CreateWindowW(wc.lpszClassName,title,WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|
    WS_MINIMIZEBOX,CW_USEDEFAULT,CW_USEDEFAULT,900,850,nullptr,nullptr,instance,nullptr);
- if(!window)return 1;
+ if(!window){CoUninitialize();return 1;}
  try{
   profiles=ProfileStore(appDirectory()/"profiles.dat").load();
   int argc=0;
@@ -950,29 +1032,29 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int show){
    startSync(true,true);
    if(!trayAdded)ShowWindow(window,SW_SHOWNORMAL);
   }else{
-   if(!folder.empty()){
-    auto needle=toUtf8(folder);int found=-1;
-    for(std::size_t i=0;i<profiles.size();++i)
-     if(profiles[i].left==needle||profiles[i].right==needle){found=static_cast<int>(i);break;}
-    if(found>=0)loadProfile(found);
-    else{set(IdName,L"New synchronization");set(IdLeft,folder);}
-   }else if(!profiles.empty())loadProfile(0);
-   else{
-    set(IdName,L"New synchronization");
-    wchar_t user[32768]{};DWORD n=GetEnvironmentVariableW(L"USERPROFILE",user,32768);
-    if(n>0&&n<32768)set(IdKnownHosts,std::wstring(user)+L"\\.ssh\\known_hosts");
-   }
    // Update Run paths if this executable was moved or upgraded.
    wchar_t module[32768]{};
    const auto length=GetModuleFileNameW(nullptr,module,32768);
    if(length>0&&length<32768)
     synchrorep::winui::synchronize_startup(profiles,module);
-   ShowWindow(window,show);
+   if(!folder.empty()){
+    beginExplorerSynchronization(window,folder);
+   }else{
+    if(!profiles.empty())loadProfile(0);
+    else{
+     set(IdName,L"New synchronization");
+     wchar_t user[32768]{};
+     DWORD n=GetEnvironmentVariableW(L"USERPROFILE",user,32768);
+     if(n>0&&n<32768)set(IdKnownHosts,std::wstring(user)+L"\\.ssh\\known_hosts");
+    }
+    ShowWindow(window,show);
+   }
   }
  }catch(const std::exception& e){
   ShowWindow(window,SW_SHOWNORMAL);
   MessageBoxA(window,e.what(),"Synchrorep startup error",MB_ICONERROR);
  }
  MSG msg;while(GetMessageW(&msg,nullptr,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}
+ CoUninitialize();
  return 0;
 }

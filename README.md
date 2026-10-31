@@ -19,7 +19,7 @@ Portage natif C++20 de [Synchrorep pour GNOME](https://github.com/sebk69/Synchro
 
 ## Installation Windows
 
-Récupérer le fichier `synchrorep-windows-0.13.2-x64.msi` dans les
+Récupérer le fichier `synchrorep-windows-0.13.3-x64.msi` dans les
 [artefacts de la dernière compilation Windows](https://git.small-project.dev/pub/synchrorep-windows/-/jobs/artifacts/main/browse/build-win?job=windows-mingw).
 
 La CI Linux/MinGW construit désormais **l’unique édition complète** en utilisant
@@ -128,11 +128,11 @@ L'exécutable Synchrorep dépend de DLL réseau, notamment `libcurl-4.dll`,
 
 Deux distributions complètes sont proposées :
 
-- `synchrorep-windows-0.13.2-x64.msi` : installation standard avec
+- `synchrorep-windows-0.13.3-x64.msi` : installation standard avec
   menu contextuel Explorer et toutes les DLL au même endroit
   (`C:\Program Files\Synchrorep`).
-- `synchrorep-windows-0.13.2-x64-portable.zip` : extraire **toute**
-  l'archive dans un dossier avant d'exécuter `Synchrorep-0.13.2\synchrorep.exe`.
+- `synchrorep-windows-0.13.3-x64-portable.zip` : extraire **toute**
+  l'archive dans un dossier avant d'exécuter `Synchrorep-0.13.3\synchrorep.exe`.
   Tous les fichiers DLL doivent rester à côté de l'exécutable.
 
 La CI refuse dorénavant de publier une archive portable incomplète.
@@ -143,3 +143,25 @@ Si l'erreur apparaît malgré le MSI, vérifier que `libcurl-4.dll` se
 trouve dans le même dossier que **l'exécutable réellement lancé** et
 réinstaller le MSI. Les anciens raccourcis ou une copie isolée de
 `synchrorep.exe` peuvent encore pointer ailleurs.
+
+
+## Lancement depuis l’Explorateur — comportement GNOME rétabli (0.13.3)
+
+Le menu contextuel **Synchronize with Synchrorep** déclenche une action :
+
+1. Si le dossier appartient déjà à une configuration, celle-ci est ouverte
+   et la synchronisation démarre après confirmation.
+2. Si le dossier n'est pas configuré, la boîte native Windows **Choisir un
+   dossier** apparaît immédiatement pour sélectionner la destination.
+3. Un profil bidirectionnel est enregistré automatiquement avec les valeurs
+   par défaut (conflits demandés, sauvegardes et Corbeille activées).
+4. La première synchronisation est proposée et démarre après confirmation.
+
+L'annulation de la sélection ne crée aucun profil et ne lance aucun transfert.
+Les dossiers identiques ou imbriqués sont refusés, y compris via des
+jonctions ou des alias de chemins. Un dossier déjà affecté à un autre
+profil ne peut pas être réutilisé par erreur.
+
+Le lancement sans dossier conserve l'interface de configuration avancée.
+L'option « miroir continu » reste distincte de la synchronisation
+bidirectionnelle par défaut et doit être activée explicitement.

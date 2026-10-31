@@ -30,6 +30,10 @@ int main(){
  assert(command->GetTitle(nullptr,&title)==S_OK);
  assert(title&&std::wcscmp(title,L"Synchronize with Synchrorep")==0);
  CoTaskMemFree(title);
+ LPWSTR tip=nullptr;
+ assert(command->GetToolTip(nullptr,&tip)==S_OK);
+ assert(tip&&std::wcscmp(tip,L"Synchronize this folder; choose a destination if not configured")==0);
+ CoTaskMemFree(tip);
  LPWSTR icon=nullptr;
  assert(command->GetIcon(nullptr,nullptr)==E_POINTER);
  assert(command->GetIcon(nullptr,&icon)==S_OK);

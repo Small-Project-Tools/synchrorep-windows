@@ -73,3 +73,20 @@ Sur Windows 11, accéder à la commande via **Afficher d’autres options**.
 Le menu compact moderne ne sera disponible qu’après déploiement et signature
 du package MSIX sparse, distinct du MSI. Un redémarrage de l’Explorateur peut
 être nécessaire pour actualiser un menu déjà ouvert.
+
+
+## Flux d’exécution depuis l’Explorateur (0.13.3)
+
+Comme dans la version GNOME, la commande de menu **agit immédiatement**
+sur le dossier sélectionné. Elle retrouve un profil existant et
+propose sa synchronisation, ou ouvre la boîte native
+\`IFileOpenDialog\` avec \`FOS_PICKFOLDERS\` pour choisir le second dossier.
+
+Pour une nouvelle configuration, Synchrorep enregistre automatiquement
+les réglages sécurisés par défaut puis demande une confirmation avant
+la première exécution. Un refus de la boîte de sélection annule l’opération.
+Les dossiers identiques, imbriqués ou déjà enregistrés ne sont pas
+acceptés. Le programme sans argument continue d’ouvrir les paramètres.
+
+La fenêtre de sélection et l'enchaînement des boutons seront aussi
+vérifiés visuellement sur Windows 11 réel.

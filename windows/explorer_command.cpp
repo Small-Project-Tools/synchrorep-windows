@@ -91,7 +91,7 @@ public:
   return duplicate_string((executable.wstring()+L",0").c_str(),icon);
  }
  HRESULT STDMETHODCALLTYPE GetToolTip(IShellItemArray*,LPWSTR* tip)override{
-  return duplicate_string(L"Open Synchrorep configuration for this folder",tip);
+  return duplicate_string(L"Synchronize this folder; choose a destination if not configured",tip);
  }
  HRESULT STDMETHODCALLTYPE GetCanonicalName(GUID* name)override{
   if(!name)return E_POINTER;
