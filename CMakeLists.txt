@@ -113,3 +113,16 @@ if(WIN32 AND SYNCHROREP_REMOTE)
  target_link_libraries(windows_transport_tests PRIVATE CURL::libcurl)
  add_test(NAME windows_transport_tests COMMAND windows_transport_tests)
 endif()
+
+
+# Storage parity prototype: GNOME-style per-file history, transactional SQLite.
+# Not yet wired into the Windows engine; migration requires dedicated testing.
+find_package(SQLite3 QUIET)
+if(SQLite3_FOUND)
+ add_library(synchrorep_sqlite_history src/sqlite_history.cpp)
+ target_include_directories(synchrorep_sqlite_history PUBLIC include)
+ target_link_libraries(synchrorep_sqlite_history PUBLIC SQLite::SQLite3)
+ add_executable(sqlite_history_tests tests/sqlite_history_tests.cpp)
+ target_link_libraries(sqlite_history_tests PRIVATE synchrorep_sqlite_history)
+ add_test(NAME sqlite_history_tests COMMAND sqlite_history_tests)
+endif()
