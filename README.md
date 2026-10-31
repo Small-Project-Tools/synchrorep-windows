@@ -238,3 +238,9 @@ avant de le renommer, une exigence Windows que Linux ne faisait pas apparaitre.
 La generation et l'installation du MSI ainsi que le test du miroir
 automatique ont ete executes sous Wine, en plus des tests C++.
 La validation dans un vrai environnement Windows 11 reste a realiser.
+
+
+Le MSI Lite 0.12.1 utilise un ProductCode et des Component GUID stables
+pour une même version. L'installation, la synchronisation automatique,
+la désinstallation et la disparition de l'exécutable ont été validées dans
+un préfixe Wine neuf. Un test sur Windows 11 réel reste nécessaire.

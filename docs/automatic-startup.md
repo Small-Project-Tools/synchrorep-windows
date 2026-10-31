@@ -103,3 +103,11 @@ Wine ne fournit pas l'integration Windows Shell correspondante.
 Le test de la Corbeille native et de la connexion a Windows 11 exige
 toujours une session Windows reelle. L'edition Lite ne contient pas
 les transports FTP/SFTP.
+
+
+Le test final de packaging a également vérifié le désinstallateur MSI :
+le fichier exécutable installé a été retiré correctement dans un nouveau
+préfixe Wine. L'utilisateur doit décocher le lancement automatique
+avant une désinstallation sur Windows pour éviter de conserver des valeurs
+HKCU Run pointant vers un exécutable supprimé ; le MSI ne supprime pas
+arbitrairement les profils ni les valeurs dynamiques de chaque utilisateur.
