@@ -77,17 +77,21 @@ cmake -S . -B build-win -DSYNCHROREP_REMOTE=ON \
   -DCMAKE_SYSTEM_NAME=Windows \
   -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++-posix \
   -DCURL_INCLUDE_DIR="$PWD/build-msys2/win64/include" \
-  -DCURL_LIBRARY="$PWD/build-msys2/win64/lib/libcurl.dll.a"
+  -DCURL_LIBRARY="$PWD/build-msys2/win64/lib/libcurl.dll.a" \
+  -DSQLite3_INCLUDE_DIR="$PWD/build-msys2/win64/include" \
+  -DSQLite3_LIBRARY="$PWD/build-msys2/win64/lib/libsqlite3.dll.a"
 cmake --build build-win --parallel
 python3 scripts/stage_windows_runtime.py --prefix build-msys2/win64 --build build-win
-python3 scripts/render_windows_installer.py --build build-win --version 0.13.0
+python3 scripts/render_windows_installer.py --build build-win --version 0.13.5
 python3 tests/windows_installer_test.py --build build-win
 ```
 
 Prérequis : CMake, MinGW-w64 x64 POSIX, Python 3, zstd et WiX `wixl`.
 La CI exécute ces opérations, fabrique le MSI et vérifie les protocoles FTP/SFTP
 sous Wine, ainsi que leurs transferts vers des serveurs de test locaux.
-Un job manuel MSVC/vcpkg permet une validation croisée, sans créer d’autre édition.
+Les tests natifs Windows 11/WSL2 sont manuels : aucun runner Windows n’est requis.
+La [recette Windows 11](docs/windows11-manual-acceptance.md) est obligatoire
+avant toute déclaration de conformité Windows 11 ou GNOME.
 
 ## Sécurité et limites
 
