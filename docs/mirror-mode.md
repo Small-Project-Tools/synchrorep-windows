@@ -37,8 +37,11 @@ miroir. Le menu de la zone de notification permet de rouvrir l'interface,
 d'arrêter le miroir ou de quitter complètement le programme.
 
 Le bouton **Cancel operation** arrête la surveillance de manière coopérative.
-Il n'y a pas encore de lancement automatique à la connexion Windows :
-Synchrorep doit être démarré et le mode miroir activé après chaque redémarrage.
+Depuis la version 0.12, **Start at Windows login** permet de demarrer
+automatiquement un profil miroir enregistré a l'ouverture de session.
+Les cibles FTP/SFTP exigent des identifiants sauvegardes dans Windows
+Credential Manager. Plusieurs miroirs sont pris en charge via des processus
+distincts. Voir [demarrage automatique](automatic-startup.md).
 
 ## Surveillance et réconciliation
 

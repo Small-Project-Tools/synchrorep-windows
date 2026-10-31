@@ -24,6 +24,7 @@
 #include "synchrorep/remote_endpoint.hpp"
 #include "synchrorep/sha256.hpp"
 #include "synchrorep/mirror_monitor.hpp"
+#include "startup_registry.hpp"
 
 namespace {
 using namespace synchrorep;
@@ -34,7 +35,7 @@ enum Control : int {
  IdRemember=113,IdLoadCredentials=114,IdPolicy=115,IdDeletes=116,
  IdPreview=117,IdExecute=118,IdChanges=119,IdExplorer=120,
  IdCancel=121,IdKeepLeft=122,IdKeepRight=123,IdSkip=124,IdProgress=125,IdStatus=126,IdResume=127,
- IdProtect=128,IdOpenRecovery=129,IdOpenLogs=130,IdRecycle=131,IdMirror=132
+ IdProtect=128,IdOpenRecovery=129,IdOpenLogs=130,IdRecycle=131,IdMirror=132,IdAutoStart=133
 };
 HWND controls[140]{};
 HWND mainWindow=nullptr;
@@ -54,6 +55,25 @@ constexpr UINT TrayMessage=WM_APP+100;
 constexpr UINT TrayId=5;
 bool trayAdded=false;
 bool activeMirror=false;
+HANDLE mirrorMutex=nullptr;
+void releaseMirrorLock(){
+ if(mirrorMutex){CloseHandle(mirrorMutex);mirrorMutex=nullptr;}
+}
+void acquireMirrorLock(const Profile& profile){
+ if(mirrorMutex)throw std::runtime_error("A mirror already runs in this window");
+ const auto key=profile.left+"\n"+profile.right;
+ Sha256 digest;
+ digest.update(reinterpret_cast<const unsigned char*>(key.data()),key.size());
+ const auto hash=digest.finish();
+ const auto lockName=L"Local\\SynchrorepMirror-"+std::wstring(hash.begin(),hash.end());
+ HANDLE handle=CreateMutexW(nullptr,FALSE,lockName.c_str());
+ if(!handle)throw std::runtime_error("Cannot create mirror instance lock");
+ if(GetLastError()==ERROR_ALREADY_EXISTS){
+  CloseHandle(handle);
+  throw std::runtime_error("This source and target mirror is already running");
+ }
+ mirrorMutex=handle;
+}
 void showMainWindow(){
  ShowWindow(mainWindow,SW_RESTORE);
  ShowWindow(mainWindow,SW_SHOW);
@@ -191,6 +211,8 @@ void loadProfile(int index){
  SendMessageW(controls[IdProtect],BM_SETCHECK,p.preserve_changes?BST_CHECKED:BST_UNCHECKED,0);
  SendMessageW(controls[IdRecycle],BM_SETCHECK,p.recycle_local_deletions?BST_CHECKED:BST_UNCHECKED,0);
  SendMessageW(controls[IdMirror],BM_SETCHECK,p.mode==SyncMode::Mirror?BST_CHECKED:BST_UNCHECKED,0);
+ SendMessageW(controls[IdAutoStart],BM_SETCHECK,p.auto_start?BST_CHECKED:BST_UNCHECKED,0);
+ EnableWindow(controls[IdAutoStart],p.mode==SyncMode::Mirror);
  SendMessageW(controls[IdChanges],LB_RESETCONTENT,0,0);
  clearCredentials();updateList();
 }
@@ -205,6 +227,8 @@ Profile fromForm(){
  p.recycle_local_deletions=SendMessageW(controls[IdRecycle],BM_GETCHECK,0,0)==BST_CHECKED;
  p.mode=SendMessageW(controls[IdMirror],BM_GETCHECK,0,0)==BST_CHECKED
    ?SyncMode::Mirror:SyncMode::Bidirectional;
+ p.auto_start=p.mode==SyncMode::Mirror&&
+   SendMessageW(controls[IdAutoStart],BM_GETCHECK,0,0)==BST_CHECKED;
  return p;
 }
 std::wstring credentialTargetForm(int uriId){return credentialTarget(toUtf8(get(uriId)));}
@@ -259,7 +283,7 @@ void setBusy(bool running){
  for(int id:{IdProfiles,IdNew,IdSave,IdDelete,IdName,IdLeft,IdRight,
   IdLeftUser,IdLeftPassword,IdRightUser,IdRightPassword,IdKnownHosts,
   IdRemember,IdLoadCredentials,IdPolicy,IdDeletes,IdPreview,IdExecute,
-  IdExplorer,IdKeepLeft,IdKeepRight,IdSkip,IdResume,IdProtect,IdOpenRecovery,IdOpenLogs,IdRecycle,IdMirror})
+  IdExplorer,IdKeepLeft,IdKeepRight,IdSkip,IdResume,IdProtect,IdOpenRecovery,IdOpenLogs,IdRecycle,IdMirror,IdAutoStart})
    EnableWindow(controls[id],!running);
  EnableWindow(controls[IdCancel],running);
 }
@@ -288,10 +312,10 @@ JobSettings getJobSettings(bool execute){
  settings.resume=SendMessageW(controls[IdResume],BM_GETCHECK,0,0)==BST_CHECKED;
  return settings;
 }
-void startSync(bool execute){
+void startSync(bool execute,bool trustedStartup=false){
  if(busy)return;
  auto settings=getJobSettings(execute);
- if(execute&&MessageBoxW(mainWindow,
+ if(execute&&!trustedStartup&&MessageBoxW(mainWindow,
    settings.profile.mode==SyncMode::Mirror
     ?L"MIRROR MODE: the local folder is authoritative. Extra target files are deleted and target edits overwritten on each reconciliation. Backups are enabled by default. Start continuous monitoring?"
     :L"Local fixed-drive deletions can use the Windows Recycle Bin. WSL/UNC and FTP/SFTP may permanently delete originals after recovery archiving (if enabled). Review Preview first. Continue?",
@@ -301,9 +325,10 @@ void startSync(bool execute){
  set(IdStatus,L"Starting...");
  setBusy(true);
  const bool mirrorMode=settings.profile.mode==SyncMode::Mirror&&execute;
- activeMirror=mirrorMode;
- if(activeMirror)addTray();
  try{
+  if(mirrorMode)acquireMirrorLock(settings.profile);
+  activeMirror=mirrorMode;
+  if(activeMirror)addTray();
   job->start([settings=std::move(settings)](const RunCallbacks& callbacks){
    synchrorep::winui::FinishedEvent result;
    auto a=endpointFrom(settings.profile.left,settings.leftUser,
@@ -321,7 +346,12 @@ void startSync(bool execute){
     if(conflicts&&settings.profile.conflict!=ConflictPolicy::Ignore){
      result.error="Resolve each conflict using the Keep left, Keep right, or Skip buttons, then retry.";
     }else{
-     result.result=engine.run(*a,*b,false,callbacks);
+     if(settings.profile.mode==SyncMode::Mirror){
+      auto* local=dynamic_cast<LocalEndpoint*>(a.get());
+      if(!local)throw std::runtime_error("Mirror source is not a local endpoint");
+      MirrorMonitor monitor;
+      result.result=monitor.run(*a,*b,engine,local->root(),callbacks);
+     }else result.result=engine.run(*a,*b,false,callbacks);
      result.executed=true;
     }
    }
@@ -330,6 +360,7 @@ void startSync(bool execute){
  }catch(...){
   activeMirror=false;
   removeTray();
+  releaseMirrorLock();
   setBusy(false);
   throw;
  }
@@ -386,6 +417,7 @@ void onFinished(std::unique_ptr<synchrorep::winui::FinishedEvent> result){
  const bool wasMirror=activeMirror;
  activeMirror=false;
  removeTray();
+ releaseMirrorLock();
  if(wasMirror&&!IsWindowVisible(mainWindow))showMainWindow();
  setBusy(false);
  showPlan(result->decisions);
@@ -571,6 +603,9 @@ void onCommand(int id){
  }
  case IdNew:
   selectedProfile=-1;overrides.clear();shownDecisions.clear();
+  SendMessageW(controls[IdMirror],BM_SETCHECK,BST_UNCHECKED,0);
+  SendMessageW(controls[IdAutoStart],BM_SETCHECK,BST_UNCHECKED,0);
+  EnableWindow(controls[IdAutoStart],FALSE);
   set(IdName,L"New synchronization");set(IdLeft,L"");set(IdRight,L"");
   clearCredentials();SendMessageW(controls[IdChanges],LB_RESETCONTENT,0,0);
   updateList();break;
@@ -580,9 +615,29 @@ void onCommand(int id){
   for(std::size_t i=0;i<profiles.size();++i)
    if(static_cast<int>(i)!=selectedProfile&&profiles[i].name==p.name)
     throw std::runtime_error("Synchronization profile name already exists");
+  if(p.auto_start){
+   const auto target=endpoint_kind(p.right);
+   if(target==EndpointKind::Ftp||target==EndpointKind::Sftp){
+    if(!loadCredential(IdRight,IdRightUser,IdRightPassword))
+     throw std::runtime_error("Use 'Remember logins' to store target credentials before enabling automatic mirror startup");
+    if(target==EndpointKind::Sftp&&p.known_hosts.empty())
+     throw std::runtime_error("SFTP automatic mirror startup requires a known_hosts file");
+   }
+  }
+  if(p.auto_start &&
+     (selectedProfile<0||!profiles[static_cast<std::size_t>(selectedProfile)].auto_start)){
+   if(MessageBoxW(mainWindow,
+       L"Start this mirror automatically at every Windows logon? It can overwrite or delete files on the TARGET without another confirmation. Keep recovery archives enabled and review Preview before enabling.",
+       L"Enable automatic mirror startup?",MB_YESNO|MB_ICONWARNING|MB_DEFBUTTON2)!=IDYES)
+    break;
+  }
   if(selectedProfile>=0)profiles[static_cast<std::size_t>(selectedProfile)]=p;
   else{profiles.push_back(p);selectedProfile=static_cast<int>(profiles.size()-1);}
   ProfileStore(appDirectory()/"profiles.dat").save(profiles);
+  wchar_t module[32768]{};
+  if(!GetModuleFileNameW(nullptr,module,32768))
+   throw std::runtime_error("Cannot locate application for automatic startup");
+  synchrorep::winui::synchronize_startup(profiles,module);
   updateList();break;
  }
  case IdDelete:
@@ -590,6 +645,10 @@ void onCommand(int id){
        L"Synchrorep",MB_YESNO|MB_ICONQUESTION)==IDYES){
    profiles.erase(profiles.begin()+selectedProfile);
    ProfileStore(appDirectory()/"profiles.dat").save(profiles);
+   wchar_t module[32768]{};
+   if(!GetModuleFileNameW(nullptr,module,32768))
+    throw std::runtime_error("Cannot locate application for automatic startup");
+   synchrorep::winui::synchronize_startup(profiles,module);
    selectedProfile=-1;overrides.clear();shownDecisions.clear();set(IdName,L"");set(IdLeft,L"");set(IdRight,L"");
    updateList();
   }break;
@@ -604,6 +663,12 @@ void onCommand(int id){
             static_cast<int>(loadCredential(IdRight,IdRightUser,IdRightPassword));
   std::wstring m=std::to_wstring(count)+L" account(s) loaded.";
   MessageBoxW(mainWindow,m.c_str(),L"Synchrorep",MB_ICONINFORMATION);break;
+ }
+ case IdMirror:{
+  const auto enabled=SendMessageW(controls[IdMirror],BM_GETCHECK,0,0)==BST_CHECKED;
+  EnableWindow(controls[IdAutoStart],enabled);
+  if(!enabled)SendMessageW(controls[IdAutoStart],BM_SETCHECK,BST_UNCHECKED,0);
+  break;
  }
  case IdExplorer:
   setExplorerMenu(SendMessageW(controls[IdExplorer],BM_GETCHECK,0,0)==BST_CHECKED);break;
@@ -644,7 +709,10 @@ void initializeControls(HWND h){
  place(h,L"BUTTON",L"Continuous local -> target mirror",BS_AUTOCHECKBOX|WS_TABSTOP,
        18,716,274,24,IdMirror);
  SendMessageW(controls[IdMirror],BM_SETCHECK,BST_UNCHECKED,0);
- label(h,L"Stops when application closes",18,744,270);
+ place(h,L"BUTTON",L"Start at Windows login",BS_AUTOCHECKBOX|WS_TABSTOP,
+       18,748,274,24,IdAutoStart);
+ EnableWindow(controls[IdAutoStart],FALSE);
+ label(h,L"Background startup per saved profile",18,777,274);
 
  label(h,L"Profile name",320,16);
  edit(h,IdName,320,39,546);
@@ -742,6 +810,7 @@ LRESULT CALLBACK windowProc(HWND window,UINT message,WPARAM w,LPARAM l){
  case WM_DESTROY: {
   removeTray();
   if(job){job->stop();job->join();}
+  releaseMirrorLock();
   MSG pending;
   while(PeekMessageW(&pending,window,synchrorep::winui::ProgressMessage,
                      synchrorep::winui::FinishedMessage,PM_REMOVE)){
@@ -769,24 +838,58 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int show){
  if(!window)return 1;
  try{
   profiles=ProfileStore(appDirectory()/"profiles.dat").load();
-  int argc=0;LPWSTR* argv=CommandLineToArgvW(GetCommandLineW(),&argc);
+  int argc=0;
+  LPWSTR* argv=CommandLineToArgvW(GetCommandLineW(),&argc);
   std::wstring folder;
-  if(argv){if(argc>1)folder=argv[1];LocalFree(argv);}
-  updateList();
-  if(!folder.empty()){
-   auto needle=toUtf8(folder);int found=-1;
-   for(std::size_t i=0;i<profiles.size();++i)
-    if(profiles[i].left==needle||profiles[i].right==needle){found=static_cast<int>(i);break;}
-   if(found>=0)loadProfile(found);
-   else{set(IdName,L"New synchronization");set(IdLeft,folder);}
-  }else if(!profiles.empty())loadProfile(0);
-  else{
-   set(IdName,L"New synchronization");
-   wchar_t user[32768]{};DWORD n=GetEnvironmentVariableW(L"USERPROFILE",user,32768);
-   if(n>0&&n<32768)set(IdKnownHosts,std::wstring(user)+L"\\.ssh\\known_hosts");
+  std::optional<std::wstring> autoProfile;
+  if(argv){
+   if(argc>1 && std::wstring(argv[1])==L"--auto-mirror"){
+    if(argc!=3){LocalFree(argv);throw std::runtime_error("Invalid automatic mirror arguments");}
+    autoProfile=argv[2];
+   }else if(argc>1)folder=argv[1];
+   LocalFree(argv);
   }
- }catch(const std::exception& e){MessageBoxA(window,e.what(),"Synchrorep profiles error",MB_ICONERROR);}
- ShowWindow(window,show);
+  updateList();
+  if(autoProfile){
+   auto wanted=toUtf8(*autoProfile);
+   int found=-1;
+   for(std::size_t i=0;i<profiles.size();++i)
+    if(profiles[i].name==wanted){found=static_cast<int>(i);break;}
+   if(found<0 || !profiles[static_cast<std::size_t>(found)].auto_start ||
+      profiles[static_cast<std::size_t>(found)].mode!=SyncMode::Mirror)
+    throw std::runtime_error("The requested profile is not enabled for automatic mirror startup");
+   loadProfile(found);
+   const auto kind=endpoint_kind(profiles[static_cast<std::size_t>(found)].right);
+   if(kind==EndpointKind::Ftp || kind==EndpointKind::Sftp){
+    if(!loadCredential(IdRight,IdRightUser,IdRightPassword))
+     throw std::runtime_error("Automatic mirror startup requires saved destination credentials in Windows Credential Manager");
+   }
+   startSync(true,true);
+   if(!trayAdded)ShowWindow(window,SW_SHOWNORMAL);
+  }else{
+   if(!folder.empty()){
+    auto needle=toUtf8(folder);int found=-1;
+    for(std::size_t i=0;i<profiles.size();++i)
+     if(profiles[i].left==needle||profiles[i].right==needle){found=static_cast<int>(i);break;}
+    if(found>=0)loadProfile(found);
+    else{set(IdName,L"New synchronization");set(IdLeft,folder);}
+   }else if(!profiles.empty())loadProfile(0);
+   else{
+    set(IdName,L"New synchronization");
+    wchar_t user[32768]{};DWORD n=GetEnvironmentVariableW(L"USERPROFILE",user,32768);
+    if(n>0&&n<32768)set(IdKnownHosts,std::wstring(user)+L"\\.ssh\\known_hosts");
+   }
+   // Update Run paths if this executable was moved or upgraded.
+   wchar_t module[32768]{};
+   const auto length=GetModuleFileNameW(nullptr,module,32768);
+   if(length>0&&length<32768)
+    synchrorep::winui::synchronize_startup(profiles,module);
+   ShowWindow(window,show);
+  }
+ }catch(const std::exception& e){
+  ShowWindow(window,SW_SHOWNORMAL);
+  MessageBoxA(window,e.what(),"Synchrorep startup error",MB_ICONERROR);
+ }
  MSG msg;while(GetMessageW(&msg,nullptr,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}
  return 0;
 }

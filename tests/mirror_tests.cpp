@@ -14,6 +14,14 @@ void write(const fs::path& path,const std::string& text){
  std::ofstream out(path,std::ios::binary|std::ios::trunc);
  out<<text;
 }
+void write_atomic(const fs::path& path,const std::string& text){
+ // Model an editor's atomic-save operation. In-place truncation may race
+ // with a simultaneous SHA-256 scan and correctly stop the mirror.
+ auto temporary=path;
+ temporary+=".draft";
+ write(temporary,text);
+ fs::rename(temporary,path);
+}
 std::string read(const fs::path& path){
  std::ifstream in(path,std::ios::binary);
  return {std::istreambuf_iterator<char>(in),{}};
@@ -155,12 +163,12 @@ int main(){
   });
   try{
    await([&]{return fs::exists(watchDst/"a")&&read(watchDst/"a")=="alpha";});
-   write(watchSrc/"a","beta");
+   write_atomic(watchSrc/"a","beta");
    await([&]{return read(watchDst/"a")=="beta";});
-   write(watchDst/"a","remote edit");
+   write_atomic(watchDst/"a","remote edit");
    await([&]{return read(watchDst/"a")=="beta";});
    auto oldTime=fs::last_write_time(watchSrc/"a");
-   write(watchSrc/"a","zeta");
+   write_atomic(watchSrc/"a","zeta");
    fs::last_write_time(watchSrc/"a",oldTime);
    await([&]{return read(watchDst/"a")=="zeta";});
    write(watchSrc/"new-folder"/"n","nested");

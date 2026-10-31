@@ -21,7 +21,7 @@ windows-mingw:
   # This cross-built artifact supports local and WSL UNC paths only.
   # To include FTP/SFTP build with MSVC and vcpkg curl[ssh].
   - cmake -S . -B build-win -DSYNCHROREP_REMOTE=OFF -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++-posix
-  - cmake --build build-win --target synchrorep engine_tests sha256_tests profiles_tests recovery_tests recovery_catalog_tests recycle_bin_tests mirror_tests windows_args_tests synchrorep_explorer_command explorer_command_tests --parallel
+  - cmake --build build-win --target synchrorep engine_tests sha256_tests profiles_tests recovery_tests recovery_catalog_tests recycle_bin_tests mirror_tests startup_tests startup_registry_tests windows_args_tests synchrorep_explorer_command explorer_command_tests --parallel
   - x86_64-w64-mingw32-objdump -p build-win/synchrorep.exe | grep 'DLL Name'
   - x86_64-w64-mingw32-objdump -p build-win/SynchrorepExplorer.dll | grep 'DllGetClassObject'
   - x86_64-w64-mingw32-objdump -p build-win/SynchrorepExplorer.dll | grep 'DllCanUnloadNow' 
@@ -41,9 +41,9 @@ windows-msvc-full:
   - ctest --test-dir build-msvc -C Release --output-on-failure
   - if (-not (Get-Command wix -ErrorAction SilentlyContinue)) { dotnet tool install --global wix --version '5.*' }
   - $env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
-  - wix build -arch x64 "-dSourceExe=build-msvc/Release/synchrorep.exe" "-dSourceExplorerDll=build-msvc/Release/SynchrorepExplorer.dll" "-dSourceLicense=LICENSE" windows/installer/Synchrorep.wxs -o synchrorep-windows-0.11.0-x64.msi
+  - wix build -arch x64 "-dSourceExe=build-msvc/Release/synchrorep.exe" "-dSourceExplorerDll=build-msvc/Release/SynchrorepExplorer.dll" "-dSourceLicense=LICENSE" windows/installer/Synchrorep.wxs -o synchrorep-windows-0.12.0-x64.msi
  artifacts:
-  paths: [build-msvc/Release/synchrorep.exe, build-msvc/Release/SynchrorepExplorer.dll, synchrorep-windows-0.11.0-x64.msi]
+  paths: [build-msvc/Release/synchrorep.exe, build-msvc/Release/SynchrorepExplorer.dll, synchrorep-windows-0.12.0-x64.msi]
 
 windows-sparse-unsigned:
  stage: build
@@ -53,6 +53,6 @@ windows-sparse-unsigned:
  script:
   - cmake -S . -B build-msvc -A x64 -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static -DSYNCHROREP_REMOTE=ON
   - cmake --build build-msvc --config Release --parallel
-  - ./windows/sparse/package.ps1 -ApplicationDirectory "build-msvc/Release" -Output "Synchrorep.Windows.0.11.0.sparse-unsigned.msix"
+  - ./windows/sparse/package.ps1 -ApplicationDirectory "build-msvc/Release" -Output "Synchrorep.Windows.0.12.0.sparse-unsigned.msix"
  artifacts:
-  paths: [Synchrorep.Windows.0.11.0.sparse-unsigned.msix]
+  paths: [Synchrorep.Windows.0.12.0.sparse-unsigned.msix]

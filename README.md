@@ -189,6 +189,29 @@ archivees selon les preferences de protection.
 Sous Windows, fermer ou reduire la fenetre pendant le miroir la masque
 dans la zone de notification, sans stopper la surveillance. Le menu
 de l'icone permet de rouvrir l'application, stopper le miroir ou quitter.
-Le redemarrage automatique a la connexion Windows n'est pas encore implemente.
+Le demarrage automatique par profil est maintenant disponible via
+**Start at Windows login** ; il demande confirmation lors de l'activation
+et utilise le Registre HKCU sans droits administrateur.
 
 Documentation: [mode miroir](docs/mirror-mode.md).
+
+
+## Demarrage automatique du miroir (0.12)
+
+Pour chaque profil de miroir, cocher **Start at Windows login** puis
+enregistrer (Save). Windows lancera alors ce miroir dans la zone de
+notification a l'ouverture de session, sans relancer les profils
+bidirectionnels. Plusieurs profils miroirs peuvent demarrer en parallele ;
+un verrou evite de lancer deux copies du meme couple source/cible.
+
+Pour les cibles FTP et SFTP, les identifiants doivent etre deja sauvegardes
+avec **Remember logins**. Le Registre ne contient ni mot de passe, ni URI
+avec des identifiants : uniquement l'executable et le nom du profil.
+Le format de fichier des profils devient **SYNCHROREP-PROFILES5**.
+Les profils existants conservent le demarrage automatique desactive.
+
+Le miroir s'arrête lorsque la session Windows se ferme. Un echec de
+connexion ou un journal de reprise en attente exige une intervention,
+sans reprise destructive automatique.
+
+Voir [demarrage automatique](docs/automatic-startup.md).

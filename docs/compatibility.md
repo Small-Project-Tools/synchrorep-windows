@@ -124,3 +124,14 @@ source locale et la cible, surveille les changements locaux et refait
 periodiquement une comparaison SHA-256 complete. Un scan source impossible
 stoppe la surveillance. Le format de profil V4 enregistre ce choix,
 les formats V1-V3 restant bidirectionnels. Voir [guide](mirror-mode.md).
+
+
+## Demarrage automatique (0.12)
+
+Les profils miroirs peuvent etre demarres lors de l'ouverture de session
+Windows avec des valeurs HKCU Run par profil et sans elevation. Les
+profils V1 a V4 restent desactives par defaut. Une double instance
+du meme couple source/cible est bloquee ; les identifiants FTP/SFTP
+proviennent de Windows Credential Manager. Le registre ne contient
+pas les secrets. Le test de connexion Windows reel reste a mener.
+Voir [demarrage automatique](automatic-startup.md).

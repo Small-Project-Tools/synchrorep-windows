@@ -79,3 +79,14 @@ La case Continuous local -> target mirror active un suivi source locale vers
 cible uniquement, y compris cible WSL, FTP et SFTP. Les profils precedents
 restent bidirectionnels. La surveillance continue lorsque la fenetre est
 masquee en zone de notification. Voir [mode miroir](mirror-mode.md).
+
+
+## Demarrage automatique par profil (0.12)
+
+**Start at Windows login** est accessible uniquement pour un profil de
+miroir. La preference est conservee dans le format V5, les anciens
+profils restant desactives par defaut. Le bouton Save enregistre ou retire
+la valeur correspondante de HKCU Run. Le miroir se lance dans la zone
+de notification lors de la connexion Windows ; plusieurs miroirs
+peuvent fonctionner dans des processus independants. Voir
+[demarrage automatique](automatic-startup.md).
