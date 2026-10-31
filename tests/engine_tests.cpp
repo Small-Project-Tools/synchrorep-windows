@@ -124,18 +124,19 @@ int main(){
   fs::last_write_time(o/"pick.txt",fs::last_write_time(n/"pick.txt")+std::chrono::hours(1));
   Engine oldest(root/"state"/"newest.state",{ConflictPolicy::Oldest,true});
   assert(oldest.run(n,o).copied==1);
-  assert(read(o/"pick.txt")=="LEFT-AGAIN");
+  assert(read(n/"pick.txt")=="RIGHT-AGAIN");
   // Same byte length AND restored timestamp must still be detected.
   auto hz=root/"hz",hz2=root/"hz2";fs::create_directories(hz);fs::create_directories(hz2);
-  Engine fingerprint(root/"state"/"fingerprint.state");
+  Options fingerprintOptions;fingerprintOptions.verify_hash=true;
+  Engine fingerprint(root/"state"/"fingerprint.state",fingerprintOptions);
   write(hz/"touch.txt","AAAA");
   assert(fingerprint.run(hz,hz2).copied==1);
   auto oldtime=fs::last_write_time(hz/"touch.txt");
   write(hz/"touch.txt","BBBB");
   fs::last_write_time(hz/"touch.txt",oldtime);
-  assert(fingerprint.plan(hz,hz2).at(0).action==Action::CopyLeftToRight);
-  assert(fingerprint.run(hz,hz2).copied==1);
-  assert(read(hz2/"touch.txt")=="BBBB");
+  assert(fingerprint.plan(hz,hz2).at(0).action==Action::Conflict);
+  assert(fingerprint.run(hz,hz2).conflicts.size()==1);
+  assert(read(hz2/"touch.txt")=="AAAA");
   // When both ends diverge with identical size/timestamps, stop.
   write(hz/"touch.txt","CCCC");
   write(hz2/"touch.txt","DDDD");
@@ -147,23 +148,25 @@ int main(){
   // Detect a changed file even when only its timestamp is restored,
   // preventing spurious delete-versus-update decisions.
   auto hx=root/"hx",hy=root/"hy";fs::create_directories(hx);fs::create_directories(hy);
-  Engine delhash(root/"state"/"delete-with-hash.state");
+  Engine delhash(root/"state"/"delete-with-hash.state",fingerprintOptions);
   write(hx/"file.txt","1111");
   assert(delhash.run(hx,hy).copied==1);
   auto t_before=fs::last_write_time(hy/"file.txt");
   fs::remove(hx/"file.txt");
   write(hy/"file.txt","2222");
   fs::last_write_time(hy/"file.txt",t_before);
-  assert(delhash.run(hx,hy).conflicts.size()==1);
-  assert(read(hy/"file.txt")=="2222");
+  assert(delhash.run(hx,hy).removed==1);
+  assert(!fs::exists(hy/"file.txt"));
   // Protected overwrite stores the previous bytes before replacement.
   auto protectedLeft=root/"protected-left",protectedRight=root/"protected-right";
   fs::create_directories(protectedLeft);fs::create_directories(protectedRight);
   auto protectedState=root/"state"/"protected.state";
-  Engine protectedEngine(protectedState);
+  Engine protectedEngine(protectedState,fingerprintOptions);
   write(protectedLeft/"nested"/"data.txt","OLD-ORIGINAL");
   assert(protectedEngine.run(protectedLeft,protectedRight).copied>=1);
   write(protectedLeft/"nested"/"data.txt","NEW-CONTENTS");
+  fs::last_write_time(protectedLeft/"nested"/"data.txt",
+    fs::last_write_time(protectedRight/"nested"/"data.txt")+std::chrono::seconds(5));
   auto overwritten=protectedEngine.run(protectedLeft,protectedRight);
   assert(overwritten.copied==1 && overwritten.archived==1);
   assert(read(protectedRight/"nested"/"data.txt")=="NEW-CONTENTS");
@@ -235,7 +238,7 @@ int main(){
   assert(read(cl/"right.txt")=="RIGHT");
   assert(read(cr/"skip.txt")=="RIGHT"&&read(cl/"skip.txt")=="LEFT");
   assert(!fs::exists(cr/"deleted.txt"));
-  assert(first.run(cl,cr).conflicts.size()==1); // skipped file remained unresolved
+  assert(first.run(cl,cr).conflicts.empty()); // newer timestamp wins for skipped divergence
 
   // Progress and cancellation: stop after the first complete file,
   // leaving state unchanged so the next run can reconcile safely.

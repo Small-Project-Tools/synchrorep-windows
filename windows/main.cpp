@@ -41,10 +41,16 @@ enum Control : int {
  IdRemember=113,IdLoadCredentials=114,IdPolicy=115,IdDeletes=116,
  IdPreview=117,IdExecute=118,IdChanges=119,IdExplorer=120,
  IdCancel=121,IdKeepLeft=122,IdKeepRight=123,IdSkip=124,IdProgress=125,IdStatus=126,IdResume=127,
- IdProtect=128,IdOpenRecovery=129,IdOpenLogs=130,IdRecycle=131,IdMirror=132,IdAutoStart=133
+ IdProtect=128,IdOpenRecovery=129,IdOpenLogs=130,IdRecycle=131,IdMirror=132,IdAutoStart=133,IdVerifyHash=134
 };
 HWND controls[140]{};
 HWND mainWindow=nullptr;
+HWND syncWindow=nullptr;
+HWND syncProgress=nullptr;
+HWND syncStatus=nullptr;
+HWND syncChanges=nullptr;
+HWND syncCancel=nullptr;
+bool shuttingDown=false;
 HFONT font=nullptr;
 std::vector<Profile> profiles;
 int selectedProfile=-1;
@@ -96,6 +102,58 @@ void acquireMirrorLock(const Profile& profile){
  }
  mirrorMutex=handle;
  legacyMirrorMutex=legacy;
+}
+LRESULT CALLBACK synchronizationWindowProc(HWND window,UINT message,WPARAM w,LPARAM l){
+ switch(message){
+ case WM_COMMAND:
+  if(LOWORD(w)==IdCancel&&job){job->stop();return 0;}
+  return 0;
+ case WM_CLOSE:
+  if(busy){
+   if(MessageBoxW(window,L"Stop the running synchronization?",L"Synchrorep",
+                  MB_YESNO|MB_ICONQUESTION)==IDYES&&job)job->stop();
+   return 0;
+  }
+  DestroyWindow(window);return 0;
+ case WM_DESTROY:
+  if(syncWindow==window){syncWindow=nullptr;syncProgress=nullptr;
+    syncStatus=nullptr;syncChanges=nullptr;syncCancel=nullptr;
+   if(!shuttingDown&&mainWindow && !IsWindowVisible(mainWindow) && !busy)ShowWindow(mainWindow,SW_SHOW);}
+  return 0;
+ default:return DefWindowProcW(window,message,w,l);
+ }
+}
+void openSynchronizationWindow(){
+ if(syncWindow){ShowWindow(syncWindow,SW_RESTORE);SetForegroundWindow(syncWindow);
+  if(syncCancel)EnableWindow(syncCancel,TRUE);
+  if(syncProgress)SendMessageW(syncProgress,PBM_SETPOS,0,0);
+  if(syncChanges)SendMessageW(syncChanges,LB_RESETCONTENT,0,0);
+  return;}
+ static bool registered=false;
+ auto module=GetModuleHandleW(nullptr);
+ if(!registered){
+  WNDCLASSW wc{};wc.lpfnWndProc=synchronizationWindowProc;
+  wc.hInstance=module;wc.hCursor=LoadCursor(nullptr,IDC_ARROW);
+  wc.hIcon=LoadIconW(module,MAKEINTRESOURCEW(101));
+  wc.hbrBackground=reinterpret_cast<HBRUSH>(COLOR_WINDOW+1);
+  wc.lpszClassName=L"SynchrorepSynchronization";
+  if(!RegisterClassW(&wc)&&GetLastError()!=ERROR_CLASS_ALREADY_EXISTS)
+   throw std::runtime_error("Cannot register synchronization window");
+  registered=true;
+ }
+ syncWindow=CreateWindowW(L"SynchrorepSynchronization",
+  L"Synchrorep - Synchronization",WS_OVERLAPPEDWINDOW,
+  CW_USEDEFAULT,CW_USEDEFAULT,730,445,nullptr,nullptr,module,nullptr);
+ if(!syncWindow)throw std::runtime_error("Cannot create synchronization window");
+ syncStatus=CreateWindowW(L"STATIC",L"Preparing synchronization...",WS_CHILD|WS_VISIBLE,
+  20,18,670,40,syncWindow,nullptr,module,nullptr);
+ syncProgress=CreateWindowW(PROGRESS_CLASSW,L"",WS_CHILD|WS_VISIBLE|PBS_SMOOTH,
+  20,64,670,24,syncWindow,nullptr,module,nullptr);
+ syncChanges=CreateWindowW(L"LISTBOX",L"",WS_CHILD|WS_VISIBLE|WS_BORDER|WS_VSCROLL|WS_HSCROLL,
+  20,104,670,220,syncWindow,nullptr,module,nullptr);
+ syncCancel=CreateWindowW(L"BUTTON",L"Cancel operation",WS_CHILD|WS_VISIBLE|WS_TABSTOP,
+  20,340,210,32,syncWindow,reinterpret_cast<HMENU>(static_cast<INT_PTR>(IdCancel)),module,nullptr);
+ ShowWindow(syncWindow,SW_SHOWNORMAL);
 }
 void showMainWindow(){
  ShowWindow(mainWindow,SW_RESTORE);
@@ -239,6 +297,7 @@ void loadProfile(int index){
  SendMessageW(controls[IdRecycle],BM_SETCHECK,p.recycle_local_deletions?BST_CHECKED:BST_UNCHECKED,0);
  SendMessageW(controls[IdMirror],BM_SETCHECK,p.mode==SyncMode::Mirror?BST_CHECKED:BST_UNCHECKED,0);
  SendMessageW(controls[IdAutoStart],BM_SETCHECK,p.auto_start?BST_CHECKED:BST_UNCHECKED,0);
+ SendMessageW(controls[IdVerifyHash],BM_SETCHECK,p.verify_hash?BST_CHECKED:BST_UNCHECKED,0);
  EnableWindow(controls[IdAutoStart],p.mode==SyncMode::Mirror);
  SendMessageW(controls[IdChanges],LB_RESETCONTENT,0,0);
  clearCredentials();updateList();
@@ -254,6 +313,7 @@ Profile fromForm(){
  p.recycle_local_deletions=SendMessageW(controls[IdRecycle],BM_GETCHECK,0,0)==BST_CHECKED;
  p.mode=SendMessageW(controls[IdMirror],BM_GETCHECK,0,0)==BST_CHECKED
    ?SyncMode::Mirror:SyncMode::Bidirectional;
+ p.verify_hash=SendMessageW(controls[IdVerifyHash],BM_GETCHECK,0,0)==BST_CHECKED;
  p.auto_start=p.mode==SyncMode::Mirror&&
    SendMessageW(controls[IdAutoStart],BM_GETCHECK,0,0)==BST_CHECKED;
  return p;
@@ -298,11 +358,13 @@ std::unique_ptr<Endpoint> endpointFrom(const std::string& uri,
 void showPlan(const std::vector<Decision>& plan){
  shownDecisions.clear();
  SendMessageW(controls[IdChanges],LB_RESETCONTENT,0,0);
+ if(syncChanges)SendMessageW(syncChanges,LB_RESETCONTENT,0,0);
  for(const auto& d:plan){
   if(d.action==Action::None)continue;
   shownDecisions.push_back(d);
   auto text=operationName(d.action)+L" : "+toWide(d.relative);
   SendMessageW(controls[IdChanges],LB_ADDSTRING,0,reinterpret_cast<LPARAM>(text.c_str()));
+  if(syncChanges)SendMessageW(syncChanges,LB_ADDSTRING,0,reinterpret_cast<LPARAM>(text.c_str()));
  }
 }
 void setBusy(bool running){
@@ -310,7 +372,7 @@ void setBusy(bool running){
  for(int id:{IdProfiles,IdNew,IdSave,IdDelete,IdName,IdLeft,IdRight,
   IdLeftUser,IdLeftPassword,IdRightUser,IdRightPassword,IdKnownHosts,
   IdRemember,IdLoadCredentials,IdPolicy,IdDeletes,IdPreview,IdExecute,
-  IdExplorer,IdKeepLeft,IdKeepRight,IdSkip,IdResume,IdProtect,IdOpenRecovery,IdOpenLogs,IdRecycle,IdMirror,IdAutoStart})
+  IdExplorer,IdKeepLeft,IdKeepRight,IdSkip,IdResume,IdProtect,IdOpenRecovery,IdOpenLogs,IdRecycle,IdMirror,IdAutoStart,IdVerifyHash})
    EnableWindow(controls[id],!running);
  EnableWindow(controls[IdCancel],running);
 }
@@ -353,6 +415,7 @@ void startSync(bool execute,bool trustedStartup=false){
  setBusy(true);
  const bool mirrorMode=settings.profile.mode==SyncMode::Mirror&&execute;
  try{
+  openSynchronizationWindow();
   if(mirrorMode){
    for(const auto& other:profiles){
     if(other.mode!=SyncMode::Mirror||other.name==settings.profile.name)continue;
@@ -371,7 +434,8 @@ void startSync(bool execute,bool trustedStartup=false){
                        settings.rightPassword,settings.profile.known_hosts);
    Options options{settings.profile.conflict,settings.profile.propagate_deletions,
                    settings.overrides,settings.resume,settings.profile.preserve_changes,
-                    settings.profile.recycle_local_deletions,settings.profile.mode};
+                    settings.profile.recycle_local_deletions,settings.profile.mode,
+                    settings.profile.verify_hash};
    Engine engine(statePath(*a,*b),std::move(options));
    result.decisions=engine.plan(*a,*b,callbacks);
    if(settings.execute){
@@ -442,10 +506,15 @@ void onProgress(std::unique_ptr<synchrorep::winui::ProgressEvent> event){
  const auto range=static_cast<LPARAM>(std::min<std::size_t>(info.total,1000000));
  SendMessageW(controls[IdProgress],PBM_SETRANGE32,0,std::max<LPARAM>(1,range));
  SendMessageW(controls[IdProgress],PBM_SETPOS,static_cast<WPARAM>(std::min<std::size_t>(info.completed,1000000)),0);
+ if(syncProgress){
+  SendMessageW(syncProgress,PBM_SETRANGE32,0,std::max<LPARAM>(1,range));
+  SendMessageW(syncProgress,PBM_SETPOS,static_cast<WPARAM>(std::min<std::size_t>(info.completed,1000000)),0);
+ }
  auto text=phaseName(info.phase)+L" "+
   std::to_wstring(info.completed)+L"/"+std::to_wstring(info.total);
  if(!info.relative.empty())text+=L" : "+toWide(info.relative);
  set(IdStatus,text);
+ if(syncStatus)SetWindowTextW(syncStatus,text.c_str());
 }
 void onFinished(std::unique_ptr<synchrorep::winui::FinishedEvent> result){
  if(job)job->join();
@@ -455,14 +524,15 @@ void onFinished(std::unique_ptr<synchrorep::winui::FinishedEvent> result){
  releaseMirrorLock();
  if(wasMirror&&!IsWindowVisible(mainWindow))showMainWindow();
  setBusy(false);
+ if(syncCancel)EnableWindow(syncCancel,FALSE);
  showPlan(result->decisions);
  if(result->cancelled){
   set(IdStatus,L"Cancelled between files; completed changes remain.");
-  MessageBoxW(mainWindow,L"Cancelled. Completed transfers are preserved. The next run will reconcile them.",
+  MessageBoxW(syncWindow?syncWindow:mainWindow,L"Cancelled. Completed transfers are preserved. The next run will reconcile them.",
               L"Synchrorep",MB_OK|MB_ICONWARNING);
  }else if(!result->error.empty()){
   set(IdStatus,L"Operation failed or conflicts unresolved.");
-  MessageBoxA(mainWindow,result->error.c_str(),"Synchrorep",MB_OK|MB_ICONERROR);
+  MessageBoxA(syncWindow?syncWindow:mainWindow,result->error.c_str(),"Synchrorep",MB_OK|MB_ICONERROR);
  }else if(result->executed){
   auto text=L"Copied: "+std::to_wstring(result->result.copied)+
             L"\nDeleted: "+std::to_wstring(result->result.removed)+
@@ -470,8 +540,10 @@ void onFinished(std::unique_ptr<synchrorep::winui::FinishedEvent> result){
             L"\nRecycled: "+std::to_wstring(result->result.recycled)+
             L"\nConflicts: "+std::to_wstring(result->result.conflicts.size());
   set(IdStatus,wasMirror?L"Continuous mirror stopped.":L"Synchronization complete.");
-  MessageBoxW(mainWindow,text.c_str(),L"Synchrorep",MB_OK|MB_ICONINFORMATION);
+  MessageBoxW(syncWindow?syncWindow:mainWindow,text.c_str(),L"Synchrorep",MB_OK|MB_ICONINFORMATION);
  }else set(IdStatus,L"Preview complete. Select a conflict to choose its resolution.");
+ if(syncStatus)SetWindowTextW(syncStatus,get(IdStatus).c_str());
+ if(!wasMirror&&!IsWindowVisible(mainWindow)&&!syncWindow)showMainWindow();
 }
 enum RecoveryControl : int {
  RecoveryList=501,RecoveryRefresh=502,RecoveryExport=503,RecoveryFolder=504
@@ -772,7 +844,8 @@ void initializeControls(HWND h){
  place(h,L"BUTTON",L"Start at Windows login",BS_AUTOCHECKBOX|WS_TABSTOP,
        18,748,274,24,IdAutoStart);
  EnableWindow(controls[IdAutoStart],FALSE);
- label(h,L"Background startup per saved profile",18,777,274);
+ place(h,L"BUTTON",L"Compare content with SHA-256 (slower)",
+       BS_AUTOCHECKBOX|WS_TABSTOP,18,777,290,24,IdVerifyHash);
 
  label(h,L"Profile name",320,16);
  edit(h,IdName,320,39,546);
@@ -834,7 +907,7 @@ LRESULT CALLBACK windowProc(HWND window,UINT message,WPARAM w,LPARAM l){
    reinterpret_cast<synchrorep::winui::FinishedEvent*>(l)));
   return 0;
  case WM_CLOSE:
-  if(activeMirror&&busy&&trayAdded){
+  if(busy){
    ShowWindow(window,SW_HIDE);
    return 0;
   }
@@ -873,6 +946,8 @@ LRESULT CALLBACK windowProc(HWND window,UINT message,WPARAM w,LPARAM l){
   return 0;
  }
  case WM_DESTROY: {
+  shuttingDown=true;
+  if(syncWindow)DestroyWindow(syncWindow);
   removeTray();
   if(job){job->stop();job->join();}
   releaseMirrorLock();
@@ -903,9 +978,17 @@ std::optional<std::wstring> chooseDestinationFolder(HWND owner,
   native,[](IFileOpenDialog* ptr){if(ptr)ptr->Release();});
  DWORD options=0;
  if(FAILED(dialog->GetOptions(&options)) ||
-    FAILED(dialog->SetOptions(options|FOS_PICKFOLDERS|FOS_FORCEFILESYSTEM|
+    FAILED(dialog->SetOptions(options|FOS_PICKFOLDERS|
                              FOS_PATHMUSTEXIST|FOS_NOCHANGEDIR)))
   throw std::runtime_error("Cannot configure destination folder picker");
+ // The Windows Shell exposes WSL distributions under the Linux namespace.
+ // Keep the native dialog and add its UNC location when Windows resolves it.
+ IShellItem* linuxRoot=nullptr;
+ if(SUCCEEDED(SHCreateItemFromParsingName(L"\\\\wsl.localhost",nullptr,
+                                        IID_PPV_ARGS(&linuxRoot)))){
+  dialog->AddPlace(linuxRoot,FDAP_TOP);
+  linuxRoot->Release();
+ }
  const auto title=L"Choose the folder to synchronize with "+source;
  dialog->SetTitle(title.c_str());
  dialog->SetOkButtonLabel(L"Synchronize");

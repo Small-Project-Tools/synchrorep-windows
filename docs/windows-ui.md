@@ -110,3 +110,18 @@ La nouvelle icone apparait dans la fenetre principale, la fenetre de
 restauration, le menu contextuel et la zone de notification. Le
 raccourci du menu Demarrer et l'entree Applications installees
 sont egalement associes au pictogramme. Test Win32 programme en CI.
+
+## Selection native WSL et fenetre d'execution (0.13.5)
+
+Le dialogue IFileOpenDialog n'exige plus FOS_FORCEFILESYSTEM sur
+la navigation intermediaire : Windows peut presenter les emplacements
+Linux/WSL. L'acces \wsl.localhost est ajoute en raccourci quand le Shell
+le resout, mais la selection finale doit etre un dossier de systeme de
+fichiers effectivement accessible.
+
+La progression s'affiche dans une fenetre de synchronisation distincte.
+La configuration reste dans sa propre fenetre, et fermer celle-ci durant
+l'execution ne detruit pas le processus de synchronisation.
+
+Le SHA-256 est optionnel apres la premiere comparaison des fichiers communs,
+et la date la plus recente determine la version a copier en cas de divergence.

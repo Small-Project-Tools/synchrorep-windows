@@ -19,7 +19,7 @@ Portage natif C++20 de [Synchrorep pour GNOME](https://github.com/sebk69/Synchro
 
 ## Installation Windows
 
-Récupérer le fichier `synchrorep-windows-0.13.4-x64.msi` dans les
+Récupérer le fichier `synchrorep-windows-0.13.5-x64.msi` dans les
 [artefacts de la dernière compilation Windows](https://git.small-project.dev/pub/desktop/synchrorep-windows/-/jobs/artifacts/main/browse/build-win?job=windows-mingw).
 
 La CI Linux/MinGW construit désormais **l’unique édition complète** en utilisant
@@ -128,10 +128,10 @@ L'exécutable Synchrorep dépend de DLL réseau, notamment `libcurl-4.dll`,
 
 Deux distributions complètes sont proposées :
 
-- `synchrorep-windows-0.13.4-x64.msi` : installation standard avec
+- `synchrorep-windows-0.13.5-x64.msi` : installation standard avec
   menu contextuel Explorer et toutes les DLL au même endroit
   (`C:\Program Files\Synchrorep`).
-- `synchrorep-windows-0.13.4-x64-portable.zip` : extraire **toute**
+- `synchrorep-windows-0.13.5-x64-portable.zip` : extraire **toute**
   l'archive dans un dossier avant d'exécuter `Synchrorep-0.13.4\synchrorep.exe`.
   Tous les fichiers DLL doivent rester à côté de l'exécutable.
 
@@ -165,3 +165,25 @@ profil ne peut pas être réutilisé par erreur.
 Le lancement sans dossier conserve l'interface de configuration avancée.
 L'option « miroir continu » reste distincte de la synchronisation
 bidirectionnelle par défaut et doit être activée explicitement.
+
+
+## Windows 0.13.5 : comparaison et fenetre de synchronisation
+
+- Le dialogue natif Windows reste utilise pour choisir une destination. Il
+  propose l'emplacement WSL \wsl.localhost lorsque Windows l'expose et
+  permet de naviguer dans les distributions depuis le dialogue standard.
+- La synchronisation a sa propre fenetre principale (statut, progression,
+  operations et annulation), independante de la fenetre des profils.
+- La case **Compare content with SHA-256 (slower)** est facultative.
+  Pour une paire sans historique, les fichiers presents des deux cotes sont
+  compares par SHA-256 quelle que soit la valeur de cette case.
+  Ensuite, si elle est desactivee, tailles et dates sont utilisees sans lire
+  le contenu pour la comparaison. Les fichiers presents d'un seul cote ne
+  sont jamais haches pour cette comparaison.
+- En cas de changement detecte, la version avec la date la plus recente
+  prevaut. A date identique avec un contenu different prouve par SHA-256,
+  le moteur s'arrete sur un conflit a resoudre manuellement.
+- Il n'y a aucune verification par checksum apres transfert. Le catalogue
+  d'archives de recuperation conserve son mecanisme de protection independant.
+- Le format des profils V6 stocke l'option de comparaison. Les anciens
+  profils V1 a V5 sont lus avec comparaison SHA-256 optionnelle desactivee.

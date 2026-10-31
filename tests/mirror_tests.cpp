@@ -52,6 +52,7 @@ int main(){
  try{
   Options opts;
   opts.mode=SyncMode::Mirror;
+  opts.verify_hash=true;
   Engine mirror(history,opts);
   // Mirror is not two-way: target extras are purged, not copied back.
   write(src/"only-source.txt","S1");

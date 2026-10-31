@@ -56,19 +56,29 @@ struct CancellationBinding {
 void emit(const RunCallbacks& callbacks,Phase phase,std::size_t done,std::size_t total,const std::string& name={}){
  if(callbacks.progress)callbacks.progress(Progress{phase,done,total,name});
 }
-Snapshot scan_hashed(const Endpoint& endpoint,const RunCallbacks& callbacks,Phase phase){
+void hash_common(Snapshot& leftScan, Snapshot& rightScan,
+                 const Endpoint& left, const Endpoint& right,
+                 const RunCallbacks& callbacks, bool enabled) {
+ if(!enabled)return;
+ for(auto& [name, entry]:leftScan){
+  check_cancel(callbacks);
+  auto it=rightScan.find(name);
+  if(it==rightScan.end()||entry.directory||it->second.directory)continue;
+  auto leftStream=left.read(name);
+  auto rightStream=right.read(name);
+  entry.hash=sha256(*leftStream,entry.size);
+  it->second.hash=sha256(*rightStream,it->second.size);
+ }
+}
+Snapshot scan_entries(const Endpoint& endpoint,const RunCallbacks& callbacks,Phase phase){
  check_cancel(callbacks);
  auto entries=endpoint.scan();
- std::size_t done=0;
  emit(callbacks,phase,0,entries.size());
- for(auto& [name,info]:entries){
+ std::size_t done=0;
+ for(const auto& [name,entry]:entries){
+  (void)entry;
   check_cancel(callbacks);
-  if(info.exists&&!info.directory){
-   auto stream=endpoint.read(name);
-   info.hash=sha256(*stream,info.size);
-  }
-  ++done;
-  emit(callbacks,phase,done,entries.size(),name);
+  emit(callbacks,phase,++done,entries.size(),name);
  }
  check_cancel(callbacks);
  return entries;
@@ -100,7 +110,7 @@ State load(const fs::path& file,const Endpoint& left,const Endpoint& right) {
    throw std::runtime_error("Invalid path in history");
   auto valid_hash=[](const Entry& e){
    if(!e.exists||e.directory)return e.hash.empty();
-   return e.hash.size()==64&&
+   return (e.hash.empty()||e.hash.size()==64)&&
      std::all_of(e.hash.begin(),e.hash.end(),[](char c){return (c>='0'&&c<='9')||(c>='a'&&c<='f');});
   };
   item.left.exists=le!=0;item.left.directory=ld!=0;
@@ -234,17 +244,27 @@ void save(const fs::path& file,const State& state) {
 Action compare(const Entry& l,const Entry& r,const Pair& old,
                const Options& options){
  const bool cl=!same(l,old.left),cr=!same(r,old.right);
+ // Hash is a change detector only. Prefer the newest source when both
+ // endpoints disagree. An exact timestamp tie is a conflict, not a guess.
+ if(l.exists&&r.exists&&!l.directory&&!r.directory &&
+    !l.hash.empty()&&!r.hash.empty()&&l.hash!=r.hash){
+  if(l.modified==r.modified)return Action::Conflict;
+  return l.modified>r.modified?Action::CopyLeftToRight:Action::CopyRightToLeft;
+ }
  if(l.exists&&r.exists&&l.directory!=r.directory)return Action::Conflict;
  if(!cl&&!cr)return Action::None;
+ // Without digests, compare size and mtime; the newest existing copy wins.
+ // A digest match above already identifies identical content regardless of time.
+ if(l.exists&&r.exists&&!l.directory&&!r.directory&&
+    l.modified!=r.modified&&!same(l,r))
+  return l.modified>r.modified?Action::CopyLeftToRight:Action::CopyRightToLeft;
  if(cl&&cr){
   if(!l.exists&&!r.exists)return Action::None;
   if(l.exists&&r.exists&&same(l,r))return Action::None;
   if(l.exists&&r.exists&&l.directory&&r.directory)return Action::None;
   if(!l.exists||!r.exists)return Action::Conflict;
-  if(options.conflict==ConflictPolicy::Newest && l.modified!=r.modified)
+  if(l.modified!=r.modified)
    return l.modified>r.modified?Action::CopyLeftToRight:Action::CopyRightToLeft;
-  if(options.conflict==ConflictPolicy::Oldest && l.modified!=r.modified)
-   return l.modified<r.modified?Action::CopyLeftToRight:Action::CopyRightToLeft;
   return Action::Conflict;
  }
  if(cl){
@@ -294,7 +314,7 @@ std::vector<Decision> build(const Snapshot& l,const Snapshot& r,
   const Entry b=ri==r.end()?Entry{}:ri->second;
   const Pair oldPair=oi==old.end()?Pair{}:oi->second;
   auto action=compare(a,b,oldPair,options);
-  if(action==Action::Conflict) {
+  if(action==Action::Conflict||options.overrides.count(name)) {
    auto override=options.overrides.find(name);
    if(override!=options.overrides.end()){
     // Never replace a directory with a file (or vice versa) implicitly.
@@ -371,8 +391,10 @@ std::vector<Decision> Engine::plan(const Endpoint& left,const Endpoint& right,co
  ensure_distinct(left,right,state_);
  CancellationBinding binding(left,right,callbacks);
  auto state=load(state_,left,right);
- auto l=scan_hashed(left,callbacks,Phase::ScanLeft);
- auto r=scan_hashed(right,callbacks,Phase::ScanRight);
+ auto l=scan_entries(left,callbacks,Phase::ScanLeft);
+ auto r=scan_entries(right,callbacks,Phase::ScanRight);
+ hash_common(l,r,left,right,callbacks,state.history.empty()||options_.verify_hash);
+
  if(options_.mode==SyncMode::Mirror){
   if(!dynamic_cast<const LocalEndpoint*>(&left))
    throw std::runtime_error("Mirror source must be a local directory");
@@ -393,7 +415,10 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallback
   if(!options_.resume_interrupted)
    throw std::runtime_error("Previous run interrupted; review the preview and explicitly enable recovery");
  }
- const auto leftScan=scan_hashed(left,callbacks,Phase::ScanLeft),rightScan=scan_hashed(right,callbacks,Phase::ScanRight);
+ auto leftScan=scan_entries(left,callbacks,Phase::ScanLeft);
+ auto rightScan=scan_entries(right,callbacks,Phase::ScanRight);
+ hash_common(leftScan,rightScan,left,right,callbacks,state.history.empty()||options_.verify_hash);
+
  if(options_.mode==SyncMode::Mirror&&!dynamic_cast<const LocalEndpoint*>(&left))
   throw std::runtime_error("Mirror source must be local");
  auto decisions=options_.mode==SyncMode::Mirror
@@ -434,7 +459,9 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallback
   auto& slot=is_left?left_backup:right_backup;
   if(!slot)slot=std::make_unique<RecoveryStore>(recovery_root/(is_left?"left":"right"));
   events.record("preserve-begin",name,reason);
-  slot->preserve(target,name,original,reason);
+  Entry backup=original;
+  if(!backup.directory && backup.hash.empty()){auto stream=target.read(name);backup.hash=sha256(*stream,backup.size);}
+  slot->preserve(target,name,backup,reason);
   ++result.archived;
   events.record("preserved",name,reason);
  };
@@ -499,20 +526,11 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallback
   }
  }
  check_cancel(callbacks);
- auto l2=scan_hashed(left,callbacks,Phase::VerifyLeft),r2=scan_hashed(right,callbacks,Phase::VerifyRight);
- // Never learn a state if a file changed during copying or its destination
- // did not match the source. This also catches partial remote replacements.
- for(const auto& d:decisions){
-  if(d.action==Action::CopyLeftToRight||d.action==Action::CopyRightToLeft){
-   const auto& before=d.action==Action::CopyLeftToRight?leftScan:rightScan;
-   const auto& after=d.action==Action::CopyLeftToRight?l2:r2;
-   const auto& dest=d.action==Action::CopyLeftToRight?r2:l2;
-   if(!after.count(d.relative)||!dest.count(d.relative)||
-      !same(before.at(d.relative),after.at(d.relative))||
-      !same(after.at(d.relative),dest.at(d.relative)))
-    throw std::runtime_error("Source changed during transfer or destination content mismatch: "+d.relative);
-  }
- }
+ auto l2=scan_entries(left,callbacks,Phase::ScanLeft);
+ auto r2=scan_entries(right,callbacks,Phase::ScanRight);
+
+ // There is deliberately no post-transfer checksum or integrity comparison.
+ // Re-scan metadata only to persist the latest filesystem state.
  for(const auto& d:decisions){
   if(d.action==Action::Conflict||d.action==Action::Skip)continue;
   const auto li=l2.find(d.relative),ri=r2.find(d.relative);

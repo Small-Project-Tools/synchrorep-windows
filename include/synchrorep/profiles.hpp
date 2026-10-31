@@ -15,6 +15,7 @@ struct Profile {
  bool recycle_local_deletions=true;
  SyncMode mode=SyncMode::Bidirectional;
  bool auto_start=false;
+ bool verify_hash=false;
 };
 class ProfileStore {
 public:

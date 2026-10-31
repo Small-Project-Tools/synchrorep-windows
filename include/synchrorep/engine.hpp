@@ -30,11 +30,12 @@ struct Options {
  bool preserve_changes = true;
  bool recycle_local_deletions = true;
  SyncMode mode = SyncMode::Bidirectional;
+ bool verify_hash = false;
  Options(ConflictPolicy policy=ConflictPolicy::Ask,bool deletions=true,std::map<std::string,ConflictChoice> per_file={},bool resume=false,
-         bool preserve=true,bool recycle=true,SyncMode sync_mode=SyncMode::Bidirectional)
+         bool preserve=true,bool recycle=true,SyncMode sync_mode=SyncMode::Bidirectional,bool hash=false)
  : conflict(policy),propagate_deletions(deletions),overrides(std::move(per_file)),
    resume_interrupted(resume),preserve_changes(preserve),
-   recycle_local_deletions(recycle),mode(sync_mode){}
+   recycle_local_deletions(recycle),mode(sync_mode),verify_hash(hash){}
 };
 struct Decision {std::string relative;Action action=Action::None;};
 struct Result {std::size_t copied=0,removed=0,archived=0,recycled=0;std::vector<std::string> conflicts;};
