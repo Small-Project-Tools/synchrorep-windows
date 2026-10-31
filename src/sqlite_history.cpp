@@ -68,6 +68,17 @@ std::int64_t pair_id(const Connection& c,const std::string& left,const std::stri
  find.bind(1,left);find.bind(2,right);
  return sqlite3_step(find.stmt)==SQLITE_ROW?sqlite3_column_int64(find.stmt,0):0;
 }
+void valid_relative_path(const std::string& name){
+ if(name.empty()||name.front()=='/'||name.find('\\')!=std::string::npos||
+    name.find('\0')!=std::string::npos)
+  throw std::runtime_error("Invalid stored relative path");
+ auto path=std::filesystem::path(name);
+ if(path.is_absolute()||path.has_root_name())
+  throw std::runtime_error("Invalid stored relative path");
+ for(const auto& part:path)
+  if(part=="."||part==".."||part.empty())
+   throw std::runtime_error("Unsafe stored path component");
+}
 std::string column(sqlite3_stmt* s,int index){
  auto* value=sqlite3_column_text(s,index);
  return value?reinterpret_cast<const char*>(value):"";
@@ -98,8 +109,7 @@ StoredHistory SqliteHistory::load(const std::string& left,const std::string& rig
  int code=SQLITE_OK;
  while((code=sqlite3_step(query.stmt))==SQLITE_ROW){
   auto name=column(query.stmt,0);
-  if(name.empty()||name.front()=='/'||name.find("..")!=std::string::npos)
-   throw std::runtime_error("Invalid stored relative path");
+  valid_relative_path(name);
   StoredPair p;
   p.left={sqlite3_column_int(query.stmt,1)!=0,sqlite3_column_int(query.stmt,2)!=0,
    static_cast<std::uintmax_t>(sqlite3_column_int64(query.stmt,3)),sqlite3_column_int64(query.stmt,4),column(query.stmt,5)};
@@ -122,8 +132,7 @@ void SqliteHistory::save(const std::string& left,const std::string& right,
   if(sqlite3_step(erase.stmt)!=SQLITE_DONE)throw std::runtime_error(sqlite3_errmsg(c.db));
   Statement insert(c.db,"INSERT INTO files VALUES(?,?,?,?,?,?,?,?,?,?,?,?)");
   for(const auto& [name,p]:entries){
-   if(name.empty()||name.front()=='/'||name.find("..")!=std::string::npos)
-    throw std::runtime_error("Invalid relative path");
+   valid_relative_path(name);
    sqlite3_reset(insert.stmt);sqlite3_clear_bindings(insert.stmt);
    insert.integer(1,id);insert.bind(2,name);
    insert.integer(3,p.left.exists);insert.integer(4,p.left.directory);

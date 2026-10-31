@@ -11,11 +11,13 @@ int main(){
   assert(storage.load("left","right").empty());
   assert(!storage.has_any_pair());
   StoredHistory entries;
+  entries["project..backup/file..txt"]={{true,false,2,23,""},{true,false,2,24,""}};
   entries["fichier special ' x.txt"]={{true,false,25,123,""},{true,false,25,124,""}};
   storage.save("left","right",entries);
   assert(storage.has_any_pair()&&storage.has_pair("left","right"));
   auto recovered=storage.load("left","right");
-  assert(recovered.size()==1);
+  assert(recovered.size()==2);
+  assert(recovered.at("project..backup/file..txt").right.modified==24);
   assert(recovered.at("fichier special ' x.txt").right.modified==124);
   assert(storage.load("other","right").empty());
   // A failed replacement must roll back the entire previous snapshot.
@@ -24,7 +26,7 @@ int main(){
   bool rejected=false;
   try{storage.save("left","right",invalid);}catch(const std::exception&){rejected=true;}
   assert(rejected);
-  assert(storage.load("left","right").size()==1);
+  assert(storage.load("left","right").size()==2);
   storage.save("left","right",{});
   assert(storage.load("left","right").empty());
   assert(storage.has_pair("left","right"));
