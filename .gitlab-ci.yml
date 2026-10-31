@@ -33,7 +33,7 @@ windows-mingw:
  script:
   - python3 scripts/fetch_windows_curl.py --output build-msys2/win64 --cache build-msys2/cache
   - cmake -S . -B build-win -DSYNCHROREP_REMOTE=ON -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++-posix -DCURL_INCLUDE_DIR="$CI_PROJECT_DIR/build-msys2/win64/include" -DCURL_LIBRARY="$CI_PROJECT_DIR/build-msys2/win64/lib/libcurl.dll.a" -DSQLite3_INCLUDE_DIR="$CI_PROJECT_DIR/build-msys2/win64/include" -DSQLite3_LIBRARY="$CI_PROJECT_DIR/build-msys2/win64/lib/libsqlite3.dll.a"
-  - cmake --build build-win --target synchrorep engine_tests sqlite_history_tests sqlite_migration_tests explorer_launch_tests remote_tests windows_transport_tests sha256_tests profiles_tests recovery_tests recovery_catalog_tests recycle_bin_tests mirror_tests startup_tests startup_registry_tests windows_args_tests synchrorep_explorer_command explorer_command_tests icon_resource_tests --parallel 2
+  - cmake --build build-win --target synchrorep engine_tests state_transitions_tests sqlite_history_tests sqlite_migration_tests explorer_launch_tests remote_tests windows_transport_tests sha256_tests profiles_tests recovery_tests recovery_catalog_tests recycle_bin_tests mirror_tests startup_tests startup_registry_tests windows_args_tests synchrorep_explorer_command explorer_command_tests icon_resource_tests --parallel 2
   - python3 scripts/stage_windows_runtime.py --prefix build-msys2/win64 --build build-win
   - python3 scripts/render_windows_installer.py --build build-win --version 0.13.5
   - python3 tests/windows_installer_test.py --build build-win
