@@ -12,6 +12,8 @@ using StoredHistory = std::map<std::string, StoredPair>;
 class SqliteHistory {
 public:
  explicit SqliteHistory(std::filesystem::path file);
+ bool has_any_pair() const;
+ bool has_pair(const std::string& left, const std::string& right) const;
  StoredHistory load(const std::string& left, const std::string& right) const;
  void save(const std::string& left, const std::string& right,
            const StoredHistory& entries) const;

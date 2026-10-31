@@ -1,4 +1,7 @@
 #include "synchrorep/engine.hpp"
+#ifdef SYNCHROREP_SQLITE_ENABLED
+#include "synchrorep/sqlite_history.hpp"
+#endif
 #include "synchrorep/sha256.hpp"
 #include "synchrorep/recovery_store.hpp"
 #include "synchrorep/run_log.hpp"
@@ -83,7 +86,7 @@ Snapshot scan_entries(const Endpoint& endpoint,const RunCallbacks& callbacks,Pha
  check_cancel(callbacks);
  return entries;
 }
-State load(const fs::path& file,const Endpoint& left,const Endpoint& right) {
+State load_legacy(const fs::path& file,const Endpoint& left,const Endpoint& right) {
  State result{left.identity(),right.identity(),{}};
  std::error_code ec;
  if(!fs::exists(file,ec)) {
@@ -122,6 +125,23 @@ State load(const fs::path& file,const Endpoint& left,const Endpoint& right) {
  }
  if(!in.eof())throw std::runtime_error("Invalid/truncated synchronization history");
  return result;
+}
+fs::path sqlite_path(const fs::path& legacy){
+ auto path=legacy;path+=".sqlite";
+ return path;
+}
+State load(const fs::path& file,const Endpoint& left,const Endpoint& right){
+#ifdef SYNCHROREP_SQLITE_ENABLED
+ SqliteHistory store(sqlite_path(file));
+ if(store.has_pair(left.identity(),right.identity())){
+  State result{left.identity(),right.identity(),{}};
+  for(const auto& [name,item]:store.load(result.left,result.right))
+   result.history.emplace(name,Pair{item.left,item.right});
+  return result;
+ }
+ if(store.has_any_pair())throw std::runtime_error("Synchronization history belongs to a different pair of locations");
+#endif
+ return load_legacy(file,left,right);
 }
 void sync_file(const fs::path& file){
 #ifdef _WIN32
@@ -213,7 +233,7 @@ void journal_completed(const fs::path& file,const std::string& relative){
  out.close();
  sync_file(file);
 }
-void save(const fs::path& file,const State& state) {
+void save_legacy(const fs::path& file,const State& state) {
  auto parent=file.parent_path();
  if(!parent.empty())fs::create_directories(parent);
  auto tmp=file;tmp+=".tmp";auto backup=file;backup+=".bak";
@@ -240,6 +260,17 @@ void save(const fs::path& file,const State& state) {
  try{fs::rename(tmp,file);}catch(...){fs::rename(backup,file);throw;}
  fs::remove(backup,ec);
  sync_parent(file);
+}
+void save(const fs::path& file,const State& state){
+#ifdef SYNCHROREP_SQLITE_ENABLED
+ SqliteHistory store(sqlite_path(file));
+ StoredHistory rows;
+ for(const auto& [name,item]:state.history)
+  rows.emplace(name,StoredPair{item.left,item.right});
+ store.save(state.left,state.right,rows);
+#else
+ save_legacy(file,state);
+#endif
 }
 Action compare(const Entry& l,const Entry& r,const Pair& old,
                const Options& options){
@@ -429,7 +460,7 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallback
   if(decision.action==Action::Conflict)result.conflicts.push_back(decision.relative);
  if(dry_run)return result;
  // Skip empty reconciliation cycles without creating new journals or archives.
- if(options_.mode==SyncMode::Mirror && fs::exists(state_) &&
+ if(options_.mode==SyncMode::Mirror && (!state.history.empty()) &&
     std::all_of(decisions.begin(),decisions.end(),[](const Decision& d){return d.action==Action::None;}))
   return result;
  if(!result.conflicts.empty() &&

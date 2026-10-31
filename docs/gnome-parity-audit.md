@@ -75,3 +75,19 @@ the two applications are already behaviorally identical.
 GNOME source is GPLv3; preserve attribution and licensing if its implementation
 is directly imported or adapted. Only the architecture and observed behaviors
 are referenced in this phase.
+
+
+## SQLite integration status
+
+The engine now reads the existing `SYNCHROREP4` state when no SQLite
+history for that pair exists. After a successful run, history is committed
+as `<state>.sqlite` in a SQLite transaction. The old `.state` stays
+untouched as a migration backup. An existing SQLite history for a
+different endpoint pair is rejected. A pending recovery journal must
+still be reviewed before the next write.
+
+SQLite is a required dependency in the build; Windows CI fetches the
+MSYS2 SQLite package with checksums, and stages the DLL import closure
+into the MSI. This does **not** implement migration of the GNOME
+`~/.synchrorep.db` configurations, behaviors, preferences or logs.
+It also does not prove end-to-end parity of every GNOME process.

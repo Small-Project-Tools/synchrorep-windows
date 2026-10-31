@@ -74,6 +74,17 @@ std::string column(sqlite3_stmt* s,int index){
 }
 }
 SqliteHistory::SqliteHistory(std::filesystem::path file):file_(std::move(file)){}
+bool SqliteHistory::has_any_pair()const{
+ if(!std::filesystem::exists(file_))return false;
+ Connection c(file_);schema(c);
+ Statement query(c.db,"SELECT 1 FROM sync_pairs LIMIT 1");
+ return sqlite3_step(query.stmt)==SQLITE_ROW;
+}
+bool SqliteHistory::has_pair(const std::string& left,const std::string& right)const{
+ if(!std::filesystem::exists(file_))return false;
+ Connection c(file_);schema(c);
+ return pair_id(c,left,right,false)!=0;
+}
 StoredHistory SqliteHistory::load(const std::string& left,const std::string& right)const{
  if(!std::filesystem::exists(file_))return {};
  Connection c(file_);schema(c);
@@ -84,7 +95,8 @@ StoredHistory SqliteHistory::load(const std::string& left,const std::string& rig
                        "FROM files WHERE pair_id=? ORDER BY file");
  query.integer(1,id);
  StoredHistory result;
- for(int code;(code=sqlite3_step(query.stmt))==SQLITE_ROW;){
+ int code=SQLITE_OK;
+ while((code=sqlite3_step(query.stmt))==SQLITE_ROW){
   auto name=column(query.stmt,0);
   if(name.empty()||name.front()=='/'||name.find("..")!=std::string::npos)
    throw std::runtime_error("Invalid stored relative path");
@@ -95,6 +107,7 @@ StoredHistory SqliteHistory::load(const std::string& left,const std::string& rig
    static_cast<std::uintmax_t>(sqlite3_column_int64(query.stmt,8)),sqlite3_column_int64(query.stmt,9),column(query.stmt,10)};
   result.emplace(std::move(name),std::move(p));
  }
+ if(code!=SQLITE_DONE)throw std::runtime_error(sqlite3_errmsg(c.db));
  return result;
 }
 void SqliteHistory::save(const std::string& left,const std::string& right,

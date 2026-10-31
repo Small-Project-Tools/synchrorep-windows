@@ -36,7 +36,7 @@ def main():
         raise RuntimeError("Windows Synchrorep binary missing")
     # Include only dependencies reachable from the shipped executable.
     staged=set()
-    requested={"libcurl-4.dll"}
+    requested=imports(options.build/"synchrorep.exe")-SYSTEM_DLLS
     while requested:
         dependency=requested.pop().lower()
         if dependency in SYSTEM_DLLS or dependency in staged:

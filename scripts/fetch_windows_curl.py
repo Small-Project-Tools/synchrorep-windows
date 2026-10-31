@@ -65,6 +65,7 @@ def collect_packages(packages):
         for dependency in entry.get("DEPENDS", []):
             add(dependency)
     add(ROOT_PACKAGE)
+    add("mingw-w64-x86_64-sqlite3")
     return selected
 
 def unpack_package(package_path, destination, package_name, licenses):
@@ -79,13 +80,15 @@ def unpack_package(package_path, destination, package_name, licenses):
                 continue
             # Includes curl headers/import library and dependent Windows DLLs.
             is_dll=(parts[1]=="bin" and name.suffix.lower()==".dll")
+            is_sqlite_header=(package_name=="mingw-w64-x86_64-sqlite3" and parts[1]=="include" and name.name in ("sqlite3.h","sqlite3ext.h"))
+            is_sqlite_import=(package_name=="mingw-w64-x86_64-sqlite3" and parts[1]=="lib" and name.name=="libsqlite3.dll.a")
             is_curl_header=(package_name==ROOT_PACKAGE and parts[1]=="include"
                             and len(parts)>=4 and parts[2]=="curl")
             is_curl_import=(package_name==ROOT_PACKAGE and parts[1]=="lib"
                             and name.name=="libcurl.dll.a")
             is_license=(parts[1]=="share" and len(parts)>=5
                         and parts[2]=="licenses")
-            if not any((is_dll,is_curl_header,is_curl_import,is_license)):
+            if not any((is_dll,is_curl_header,is_curl_import,is_sqlite_header,is_sqlite_import,is_license)):
                 continue
             # Strip /mingw64 and ensure only regular files are extracted.
             if is_license:
