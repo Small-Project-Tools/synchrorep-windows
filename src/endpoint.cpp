@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <fstream>
+#include <regex>
 #include <stdexcept>
 #include <string_view>
 #include <system_error>
@@ -62,7 +63,13 @@ fs::path LocalEndpoint::within(const std::string& relative) const {
 }
 Snapshot LocalEndpoint::scan()const{
  Snapshot found;
+ static const std::regex unfinished(R"(\.synchrorep-(?:write-[0-9]+\.tmp|upload-[0-9]+)$)");
  for(auto i=fs::recursive_directory_iterator(root_);i!=fs::recursive_directory_iterator();++i) {
+  // An unclean shutdown can leave a temporary file. It must never be
+  // propagated to the opposite endpoint as user data.
+  const auto name=i->path().filename().string();
+  if(std::regex_search(name,unfinished))
+   throw std::runtime_error("Interrupted transfer artifact detected; inspect and remove manually: "+i->path().string());
   auto key=i->path().lexically_relative(root_).generic_u8string();
   found.emplace(std::string(key.begin(),key.end()),stat(i->path()));
  }

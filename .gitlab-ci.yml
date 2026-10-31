@@ -14,12 +14,13 @@ windows-mingw:
  stage: build
  image: debian:bookworm
  before_script:
-  - apt-get update -qq && apt-get install -y -qq cmake g++-mingw-w64-x86-64
+  - apt-get update -qq && apt-get install -y -qq cmake g++-mingw-w64-x86-64-posix
  script:
   # This cross-built artifact supports local and WSL UNC paths only.
   # To include FTP/SFTP build with MSVC and vcpkg curl[ssh].
-  - cmake -S . -B build-win -DSYNCHROREP_REMOTE=OFF -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++
+  - cmake -S . -B build-win -DSYNCHROREP_REMOTE=OFF -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++-posix
   - cmake --build build-win --target synchrorep engine_tests sha256_tests profiles_tests --parallel
+  - x86_64-w64-mingw32-objdump -p build-win/synchrorep.exe | grep 'DLL Name' 
  artifacts:
   paths: [build-win/synchrorep.exe]
 

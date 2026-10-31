@@ -74,6 +74,19 @@ Voir [état de compatibilité](docs/compatibility.md) et [interface Windows](doc
 
 Licence originale GPL-3.0 conservée dans [LICENSE](LICENSE). Les notices de licences des dépendances restent applicables.
 
+## Reprise controlee apres interruption
+
+Le moteur cree un fichier journal `<historique>.journal` **avant toute modification**. Si l'execution est interrompue, ce journal est conserve : une execution ulterieure est refusee par defaut. Utiliser **Preview** pour examiner les changements, puis activer **Resume interrupted run** dans l'interface Windows avant de relancer.
+
+Dans la CLI Linux, utiliser `--resume` uniquement apres avoir verifie le contenu des deux dossiers :
+
+```bash
+./build-remote/synchrorep /tmp/source /tmp/target /tmp/synchrorep.state --dry-run
+./build-remote/synchrorep /tmp/source /tmp/target /tmp/synchrorep.state --resume
+```
+
+Cette reprise fait une **nouvelle analyse complete** et ne rejoue pas aveuglement les anciennes operations. Elle controle que le journal correspond exactement aux deux endpoints. Elle ne garantit pas de rollback transactionnel, notamment apres une panne de courant. Voir [execution](docs/execution.md).
+
 ## Execution asynchrone et annulation
 
-L'interface Win32 lance l'analyse et les copies dans un thread de travail. Elle affiche la phase, le compteur et le chemin du fichier courant. La liste des conflits permet de choisir Keep left, Keep right ou Skip file. La demande d'annulation est appliquee entre deux fichiers, pas pendant un transfert distant en cours. Voir [execution et limites](docs/execution.md).
+L'interface Win32 lance l'analyse et les copies dans un thread de travail. Elle affiche la phase, le compteur et le chemin du fichier courant. La liste des conflits permet de choisir Keep left, Keep right ou Skip file. La demande d'annulation peut interrompre les transferts FTP/SFTP via libcurl; le hachage d'un fichier local reste interruptible uniquement entre fichiers. Voir [execution et limites](docs/execution.md).

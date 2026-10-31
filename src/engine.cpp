@@ -8,6 +8,13 @@
 #include <set>
 #include <stdexcept>
 #include <utility>
+#include <cerrno>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 namespace synchrorep {
 namespace {
@@ -28,6 +35,19 @@ bool same(const Entry& a,const Entry& b){
 void check_cancel(const RunCallbacks& callbacks){
  if(callbacks.cancelled && callbacks.cancelled())throw RunCancelled();
 }
+struct CancellationBinding {
+ const Endpoint& left;
+ const Endpoint& right;
+ CancellationBinding(const Endpoint& a,const Endpoint& b,const RunCallbacks& callbacks)
+ :left(a),right(b){
+  left.set_cancellation(callbacks.cancelled);
+  right.set_cancellation(callbacks.cancelled);
+ }
+ ~CancellationBinding(){
+  left.set_cancellation({});
+  right.set_cancellation({});
+ }
+};
 void emit(const RunCallbacks& callbacks,Phase phase,std::size_t done,std::size_t total,const std::string& name={}){
  if(callbacks.progress)callbacks.progress(Progress{phase,done,total,name});
 }
@@ -88,6 +108,96 @@ State load(const fs::path& file,const Endpoint& left,const Endpoint& right) {
  if(!in.eof())throw std::runtime_error("Invalid/truncated synchronization history");
  return result;
 }
+void sync_file(const fs::path& file){
+#ifdef _WIN32
+ HANDLE handle=CreateFileW(file.c_str(),GENERIC_WRITE,
+  FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,
+  FILE_ATTRIBUTE_NORMAL,nullptr);
+ if(handle==INVALID_HANDLE_VALUE)throw std::runtime_error("Cannot open journal for durable flush");
+ const BOOL done=FlushFileBuffers(handle);
+ CloseHandle(handle);
+ if(!done)throw std::runtime_error("Cannot flush journal to disk");
+#else
+ int fd=open(file.c_str(),O_RDONLY);
+ if(fd<0)throw fs::filesystem_error("Cannot reopen file for fsync",file,
+  std::error_code(errno,std::generic_category()));
+ int code=fsync(fd);
+ int failure=errno;
+ close(fd);
+ if(code!=0)throw fs::filesystem_error("fsync failed",file,
+  std::error_code(failure,std::generic_category()));
+#endif
+}
+void sync_parent(const fs::path& file){
+#ifndef _WIN32
+ auto parent=file.parent_path();
+ if(parent.empty())parent=".";
+ int fd=open(parent.c_str(),O_RDONLY|O_DIRECTORY);
+ if(fd<0)throw fs::filesystem_error("Cannot open journal directory",parent,
+  std::error_code(errno,std::generic_category()));
+ int code=fsync(fd);
+ int failure=errno;
+ close(fd);
+ if(code!=0)throw fs::filesystem_error("Directory fsync failed",parent,
+  std::error_code(failure,std::generic_category()));
+#else
+ (void)file;
+#endif
+}
+fs::path journal_path(const fs::path& state){
+ auto file=state;
+ file+=".journal";
+ return file;
+}
+void validate_journal(const fs::path& file,const Endpoint& left,const Endpoint& right){
+ std::ifstream input(file,std::ios::binary);
+ if(!input)throw std::runtime_error("Cannot read recovery journal");
+ std::string header,a,b;
+ std::getline(input,header);
+ if(header!="SYNCHROREP-RUN1")throw std::runtime_error("Invalid recovery journal format");
+ if(!(input>>std::quoted(a)>>std::quoted(b))||
+    a!=left.identity()||b!=right.identity())
+  throw std::runtime_error("Recovery journal belongs to different endpoints");
+ std::string line;
+ std::getline(input,line); // consume remainder of identity line
+ while(std::getline(input,line)){
+  if(line.empty())throw std::runtime_error("Empty recovery journal entry");
+  std::istringstream record(line);
+  std::string action,name,extra;
+  if(!(record>>action>>std::quoted(name))||(action!="BEGIN"&&action!="DONE")||
+     !(record>>std::ws).eof()||name.empty())
+   throw std::runtime_error("Damaged recovery journal entry");
+ }
+ if(input.bad())throw std::runtime_error("Cannot finish reading recovery journal");
+}
+void begin_journal(const fs::path& file,const Endpoint& left,const Endpoint& right,
+                   const std::vector<Decision>& decisions){
+ auto parent=file.parent_path();
+ if(!parent.empty())fs::create_directories(parent);
+ auto temporary=file;temporary+=".tmp";
+ {
+  std::ofstream out(temporary,std::ios::binary|std::ios::trunc);
+  if(!out)throw std::runtime_error("Cannot create recovery journal");
+  out<<"SYNCHROREP-RUN1\n"<<std::quoted(left.identity())<<' '<<std::quoted(right.identity())<<'\n';
+  for(const auto& decision:decisions)
+   if(decision.action!=Action::None&&decision.action!=Action::Conflict&&decision.action!=Action::Skip)
+    out<<"BEGIN "<<std::quoted(decision.relative)<<'\n';
+  out.flush();
+  if(!out)throw std::runtime_error("Cannot write recovery journal");
+ }
+ sync_file(temporary);
+ fs::rename(temporary,file);
+ sync_parent(file);
+}
+void journal_completed(const fs::path& file,const std::string& relative){
+ std::ofstream out(file,std::ios::binary|std::ios::app);
+ if(!out)throw std::runtime_error("Recovery journal inaccessible during operation");
+ out<<"DONE "<<std::quoted(relative)<<'\n';
+ out.flush();
+ if(!out)throw std::runtime_error("Failed updating recovery journal");
+ out.close();
+ sync_file(file);
+}
 void save(const fs::path& file,const State& state) {
  auto parent=file.parent_path();
  if(!parent.empty())fs::create_directories(parent);
@@ -103,9 +213,10 @@ void save(const fs::path& file,const State& state) {
       <<p.right.size<<' '<<p.right.modified<<' '<<std::quoted(p.right.hash)<<'\n';
   out.flush();if(!out)throw std::runtime_error("Cannot flush synchronization history");
  }
+ sync_file(tmp);
  std::error_code ec;
  fs::rename(tmp,file,ec);
- if(!ec)return;
+ if(!ec){sync_parent(file);return;}
  // Some Windows filesystems require a separate rename when replacing an
  // existing file. Keep a rollback copy rather than deleting the old state.
  if(!fs::exists(file))throw fs::filesystem_error("Cannot save history",tmp,file,ec);
@@ -113,6 +224,7 @@ void save(const fs::path& file,const State& state) {
  fs::rename(file,backup);
  try{fs::rename(tmp,file);}catch(...){fs::rename(backup,file);throw;}
  fs::remove(backup,ec);
+ sync_parent(file);
 }
 Action compare(const Entry& l,const Entry& r,const Pair& old,
                const Options& options){
@@ -197,8 +309,15 @@ void transfer(Endpoint& from,Endpoint& to,const std::string& name,const Entry& i
 void erase(Endpoint& endpoint,const std::string& name){endpoint.remove(name);}
 }
 Engine::Engine(fs::path state,Options options):state_(std::move(state)),options_(options){}
+bool Engine::has_pending_recovery()const{
+ std::error_code error;
+ bool exists=fs::exists(journal_path(state_),error);
+ if(error)throw std::runtime_error("Cannot inspect recovery journal");
+ return exists;
+}
 std::vector<Decision> Engine::plan(const Endpoint& left,const Endpoint& right,const RunCallbacks& callbacks)const{
  ensure_distinct(left,right,state_);
+ CancellationBinding binding(left,right,callbacks);
  auto state=load(state_,left,right);
  return build(scan_hashed(left,callbacks,Phase::ScanLeft),scan_hashed(right,callbacks,Phase::ScanRight),state.history,options_);
 }
@@ -207,7 +326,14 @@ std::vector<Decision> Engine::plan(const fs::path& left,const fs::path& right,co
 }
 Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallbacks& callbacks){
  ensure_distinct(left,right,state_);
+ CancellationBinding binding(left,right,callbacks);
  auto state=load(state_,left,right);
+ auto journal=journal_path(state_);
+ if(!dry_run&&has_pending_recovery()){
+  validate_journal(journal,left,right);
+  if(!options_.resume_interrupted)
+   throw std::runtime_error("Previous run interrupted; review the preview and explicitly enable recovery");
+ }
  const auto leftScan=scan_hashed(left,callbacks,Phase::ScanLeft),rightScan=scan_hashed(right,callbacks,Phase::ScanRight);
  auto decisions=build(leftScan,rightScan,state.history,options_);
  Result result;
@@ -215,6 +341,16 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallback
   if(decision.action==Action::Conflict)result.conflicts.push_back(decision.relative);
  if(dry_run)return result;
  if(!result.conflicts.empty() && options_.conflict!=ConflictPolicy::Ignore)return result;
+ check_cancel(callbacks);
+ emit(callbacks,Phase::Journal,0,1);
+ // A previous log is removed ONLY after validating the pair and explicit consent.
+ // No filesystem modifications have happened in this run at this point.
+ if(has_pending_recovery()){
+  if(!fs::remove(journal))throw std::runtime_error("Cannot replace recovery journal");
+  sync_parent(journal);
+ }
+ begin_journal(journal,left,right,decisions);
+ emit(callbacks,Phase::Journal,1,1);
  // No filesystem modifications until both scans and every conflict have
  // been evaluated. Conflicting entries are not committed to the history.
  std::size_t copied=0;
@@ -230,8 +366,10 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallback
    case Action::CopyRightToLeft: transfer(right,left,d.relative,ri->second);++result.copied;break;
    default:break;
   }
-  if(d.action==Action::CopyLeftToRight||d.action==Action::CopyRightToLeft)
+  if(d.action==Action::CopyLeftToRight||d.action==Action::CopyRightToLeft){
+   journal_completed(journal,d.relative);
    emit(callbacks,Phase::Copy,++copied,static_cast<std::size_t>(copies),d.relative);
+  }
  }
  std::reverse(decisions.begin(),decisions.end());
  const auto deletions=std::count_if(decisions.begin(),decisions.end(),[](const Decision& d){
@@ -243,8 +381,10 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallback
   check_cancel(callbacks);
   if(d.action==Action::DeleteLeft){erase(left,d.relative);++result.removed;}
   if(d.action==Action::DeleteRight){erase(right,d.relative);++result.removed;}
-  if(d.action==Action::DeleteRight||d.action==Action::DeleteLeft)
+  if(d.action==Action::DeleteRight||d.action==Action::DeleteLeft){
+   journal_completed(journal,d.relative);
    emit(callbacks,Phase::Delete,++deleted,static_cast<std::size_t>(deletions),d.relative);
+  }
  }
  check_cancel(callbacks);
  auto l2=scan_hashed(left,callbacks,Phase::VerifyLeft),r2=scan_hashed(right,callbacks,Phase::VerifyRight);
@@ -271,6 +411,8 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallback
  check_cancel(callbacks);
  emit(callbacks,Phase::Save,0,1);
  save(state_,state);
+ if(!fs::remove(journal))throw std::runtime_error("Cannot finalize recovery journal");
+ sync_parent(journal);
  emit(callbacks,Phase::Complete,1,1);
  return result;
 }

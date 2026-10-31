@@ -53,6 +53,28 @@ int main(){
   catch(const std::exception&) {short_rejected=true;}
   assert(short_rejected);
   assert(remote.scan().at("remote.txt").size==11);
+  // Abort an active curl transfer, not just at the boundary between files.
+  int checks=0;
+  remote.set_cancellation([&]{return ++checks>=2;});
+  bool transfer_cancelled=false;
+  try{
+   auto ignored=remote.read("remote.txt");
+   (void)ignored;
+  }catch(const RunCancelled&){transfer_cancelled=true;}
+  remote.set_cancellation({});
+  assert(transfer_cancelled);
+  checks=0;
+  remote.set_cancellation([&]{return ++checks>=2;});
+  std::istringstream upload("REPLACEMENT");
+  bool upload_cancelled=false;
+  try{remote.write("remote.txt",upload,Entry{true,false,11,0,{}});}
+  catch(const RunCancelled&){upload_cancelled=true;}
+  remote.set_cancellation({});
+  assert(upload_cancelled);
+  const auto after_cancel=remote.scan();
+  assert(after_cancel.at("remote.txt").size==11);
+  for(const auto& [name,_]:after_cancel)
+   assert(name.find(".synchrorep-upload-")==std::string::npos);
   // A change created remotely must propagate to the local side.
   std::istringstream updated("REMOTE-UPDATED");
   remote.write("remote.txt",updated,Entry{true,false,14,0,{}});

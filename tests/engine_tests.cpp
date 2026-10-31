@@ -172,10 +172,17 @@ int main(){
   try{cancellable.run(cancelA,cancelB,false,callbacks);}
   catch(const RunCancelled&){cancelled=true;}
   assert(cancelled&&!fs::exists(cancelState));
+  assert(cancellable.has_pending_recovery());
   assert(reported.size()>2);
   assert(fs::exists(cancelB/"a.txt")&&!fs::exists(cancelB/"b.txt"));
-  assert(cancellable.run(cancelA,cancelB).conflicts.empty());
+  assert(throws([&]{cancellable.run(cancelA,cancelB);}));
+  auto preview=cancellable.plan(cancelA,cancelB);
+  assert(!preview.empty());
+  Engine recovery(cancelState,Options{ConflictPolicy::Ask,true,{},true});
+  assert(recovery.run(cancelA,cancelB).conflicts.empty());
+  assert(!recovery.has_pending_recovery());
   assert(read(cancelB/"b.txt")=="two");
+  assert(recovery.run(cancelA,cancelB).copied==0);
 
   // Cancellation during a scan never copies anything and never updates state.
   auto scanL=root/"scan-cancel-l",scanR=root/"scan-cancel-r";
@@ -190,6 +197,30 @@ int main(){
   assert(throws([&]{scanEngine.run(scanL,scanR,false,scanCallbacks);}));
   assert(!fs::exists(scanR/"a"));
   assert(!fs::exists(root/"state"/"scan-cancel.state"));
+  assert(!scanEngine.has_pending_recovery());
+  // The recovery journal is specific to its ordered pair of endpoints.
+  auto pairState=root/"state"/"mismatch.state";
+  Engine wrongPair(pairState);
+  write(scanL/"will-cancel","test");
+  bool stopAfter=false;
+  RunCallbacks afterFirst{{[&]{return stopAfter;}},[&](const Progress& p){
+   if(p.phase==Phase::Copy&&p.completed==1)stopAfter=true;
+  }};
+  assert(throws([&]{wrongPair.run(scanL,scanR,false,afterFirst);}));
+  assert(wrongPair.has_pending_recovery());
+  assert(throws([&]{Engine(pairState,Options{ConflictPolicy::Ask,true,{},true}).run(a,b);}));
+  assert(wrongPair.has_pending_recovery());
+  Engine correctPair(pairState,Options{ConflictPolicy::Ask,true,{},true});
+  assert(correctPair.run(scanL,scanR).conflicts.empty());
+  assert(!correctPair.has_pending_recovery());
+  // The journal must fail closed if the metadata is tampered with.
+  auto corruptState=root/"state"/"corrupt-journal.state";
+  write(root/"state"/"corrupt-journal.state.journal","INVALID HEADER\n");
+  assert(throws([&]{Engine(corruptState,Options{ConflictPolicy::Ask,true,{},true}).run(scanL,scanR);}));
+  // An orphaned local temporary upload must fail closed, not sync junk.
+  write(scanL/"user.bin.synchrorep-write-12345.tmp","partial");
+  assert(throws([&]{correctPair.plan(scanL,scanR);}));
+  fs::remove(scanL/"user.bin.synchrorep-write-12345.tmp");
   // An explicitly skipped conflict is not learned into history.
   auto explicitSkip=resolved.plan(cl,cr);
   assert(std::none_of(explicitSkip.begin(),explicitSkip.end(),[](const Decision& d){

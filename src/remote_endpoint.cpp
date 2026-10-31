@@ -23,6 +23,20 @@ std::once_flag global_init;
 using CurlHandle = std::unique_ptr<CURL,decltype(&curl_easy_cleanup)>;
 using CurlList = std::unique_ptr<curl_slist,decltype(&curl_slist_free_all)>;
 
+int cancel_curl(void* opaque,curl_off_t,curl_off_t,curl_off_t,curl_off_t){
+ auto& check=*static_cast<std::function<bool()>*>(opaque);
+ return check&&check()?1:0;
+}
+void attach_cancellation(CURL* curl,const std::function<bool()>& check){
+ if(!check)return;
+ curl_easy_setopt(curl,CURLOPT_NOPROGRESS,0L);
+ curl_easy_setopt(curl,CURLOPT_XFERINFOFUNCTION,cancel_curl);
+ curl_easy_setopt(curl,CURLOPT_XFERINFODATA,&check);
+}
+void verify_curl(CURLcode status,const std::function<bool()>& check,const std::string& action){
+ if(status==CURLE_ABORTED_BY_CALLBACK && check && check())throw RunCancelled();
+ if(status!=CURLE_OK)throw std::runtime_error(action+": "+curl_easy_strerror(status));
+}
 void initialize(){
  std::call_once(global_init, []{if(curl_global_init(CURL_GLOBAL_DEFAULT)!=CURLE_OK)
   throw std::runtime_error("Cannot initialize libcurl");});
@@ -183,6 +197,9 @@ RemoteEndpoint::RemoteEndpoint(std::string url,RemoteCredentials credentials)
  if(!supported)throw std::runtime_error("This libcurl was built without "+scheme_+" support");
 }
 std::string RemoteEndpoint::identity()const {return root_;}
+void RemoteEndpoint::set_cancellation(std::function<bool()> callback)const {
+ cancelled_=std::move(callback);
+}
 std::string RemoteEndpoint::url_for(const std::string& relative,bool directory)const{
  std::string u=root_;
  if(!relative.empty())u+=url_path(validate_relative(relative));
@@ -201,7 +218,7 @@ std::string RemoteEndpoint::quote_path(const std::string& relative)const {
  escaped+='\"';
  return escaped;
 }
-void RemoteEndpoint::command(const std::vector<std::string>& commands)const{
+void RemoteEndpoint::command(const std::vector<std::string>& commands,bool allow_cancel)const{
  CurlHandle curl(curl_easy_init(),curl_easy_cleanup);
  if(!curl)throw std::runtime_error("Cannot create remote command");
  curl_easy_setopt(curl.get(),CURLOPT_URL,root_.c_str());
@@ -220,10 +237,11 @@ void RemoteEndpoint::command(const std::vector<std::string>& commands)const{
  for(const auto& command:commands)raw=curl_slist_append(raw,command.c_str());
  CurlList quotes(raw,curl_slist_free_all);
  curl_easy_setopt(curl.get(),CURLOPT_QUOTE,quotes.get());
- auto result=curl_easy_perform(curl.get());
- if(result!=CURLE_OK)throw std::runtime_error(std::string("Remote command failed: ")+curl_easy_strerror(result));
+ if(allow_cancel)attach_cancellation(curl.get(),cancelled_);
+ verify_curl(curl_easy_perform(curl.get()),allow_cancel?cancelled_:std::function<bool()>{},"Remote command failed");
 }
 void RemoteEndpoint::scan_directory(const std::string& relative,Snapshot& result,unsigned depth)const {
+ if(cancelled_&&cancelled_())throw RunCancelled();
  if(depth>80)throw std::runtime_error("Remote nesting too deep");
  CurlHandle curl(curl_easy_init(),curl_easy_cleanup);
  if(!curl)throw std::runtime_error("Cannot create remote listing request");
@@ -241,8 +259,8 @@ void RemoteEndpoint::scan_directory(const std::string& relative,Snapshot& result
  else curl_easy_setopt(curl.get(),CURLOPT_SSH_KNOWNHOSTS,credentials_.known_hosts.c_str());
  if(scheme_=="sftp"&&!credentials_.private_key.empty())
   curl_easy_setopt(curl.get(),CURLOPT_SSH_PRIVATE_KEYFILE,credentials_.private_key.c_str());
- auto status=curl_easy_perform(curl.get());
- if(status!=CURLE_OK)throw std::runtime_error("Remote directory listing failed (no deletions performed): "+std::string(curl_easy_strerror(status)));
+ attach_cancellation(curl.get(),cancelled_);
+ verify_curl(curl_easy_perform(curl.get()),cancelled_,"Remote directory listing failed (no deletions performed)");
  std::stringstream lines(listing);std::string line;
  std::vector<std::string> dirs;
  while(std::getline(lines,line)){
@@ -271,8 +289,8 @@ void RemoteEndpoint::scan_directory(const std::string& relative,Snapshot& result
     curl_easy_setopt(f.get(),CURLOPT_CONNECTTIMEOUT,15L);
     curl_easy_setopt(f.get(),CURLOPT_TIMEOUT,120L);
     curl_easy_setopt(f.get(),CURLOPT_NOSIGNAL,1L);
-    if(auto code=curl_easy_perform(f.get());code!=CURLE_OK)
-     throw std::runtime_error("Cannot stat SFTP file: "+std::string(curl_easy_strerror(code)));
+    attach_cancellation(f.get(),cancelled_);
+    verify_curl(curl_easy_perform(f.get()),cancelled_,"Cannot stat SFTP file");
     curl_off_t length=-1,modified=-1;
     curl_easy_getinfo(f.get(),CURLINFO_CONTENT_LENGTH_DOWNLOAD_T,&length);
     curl_easy_getinfo(f.get(),CURLINFO_FILETIME_T,&modified);
@@ -281,6 +299,11 @@ void RemoteEndpoint::scan_directory(const std::string& relative,Snapshot& result
     entry.modified=modified;
    }
   }
+  // A process killed during upload may leave its staging file on the server.
+  // Block synchronization rather than silently copying that partial file.
+  static const std::regex unfinished(R"(\.synchrorep-upload-[0-9]+$)");
+  if(std::regex_search(name,unfinished))
+   throw std::runtime_error("Interrupted remote upload artifact detected; review and remove manually: "+name);
   auto key=relative.empty()?name:relative+"/"+name;
   if(!result.emplace(key,entry).second)throw std::runtime_error("Duplicate remote path in listing");
   if(entry.directory)dirs.push_back(key);
@@ -291,6 +314,7 @@ Snapshot RemoteEndpoint::scan()const {
  Snapshot result;scan_directory("",result,0);cached_=result;return result;
 }
 std::unique_ptr<std::istream> RemoteEndpoint::read(const std::string& relative)const {
+ if(cancelled_&&cancelled_())throw RunCancelled();
  auto dest=temporary_path();
  try{
   std::ofstream out(dest,std::ios::binary|std::ios::trunc);
@@ -310,8 +334,11 @@ std::unique_ptr<std::istream> RemoteEndpoint::read(const std::string& relative)c
    curl_easy_setopt(curl.get(),CURLOPT_SSH_KNOWNHOSTS,credentials_.known_hosts.c_str());
    if(!credentials_.private_key.empty())curl_easy_setopt(curl.get(),CURLOPT_SSH_PRIVATE_KEYFILE,credentials_.private_key.c_str());
   }
+  attach_cancellation(curl.get(),cancelled_);
   auto status=curl_easy_perform(curl.get());
-  out.flush();if(status!=CURLE_OK||!out)throw std::runtime_error("Remote download failed: "+std::string(curl_easy_strerror(status)));
+  out.flush();
+  verify_curl(status,cancelled_,"Remote download failed");
+  if(!out)throw std::runtime_error("Incomplete remote download");
   out.close();
   auto input=std::make_unique<TemporaryInputStream>(dest);
   if(!*input)throw std::runtime_error("Cannot reopen remote download");
@@ -319,6 +346,7 @@ std::unique_ptr<std::istream> RemoteEndpoint::read(const std::string& relative)c
  }catch(...){std::error_code ec;fs::remove(dest,ec);throw;}
 }
 void RemoteEndpoint::write(const std::string& relative,std::istream& input,const Entry& source){
+ if(cancelled_&&cancelled_())throw RunCancelled();
  validate_relative(relative);
  if(source.directory)throw std::invalid_argument("Cannot write a directory");
  auto parent=relative.find_last_of('/');
@@ -345,13 +373,15 @@ void RemoteEndpoint::write(const std::string& relative,std::istream& input,const
   curl_easy_setopt(curl.get(),CURLOPT_SSH_KNOWNHOSTS,credentials_.known_hosts.c_str());
   if(!credentials_.private_key.empty())curl_easy_setopt(curl.get(),CURLOPT_SSH_PRIVATE_KEYFILE,credentials_.private_key.c_str());
  }
+ attach_cancellation(curl.get(),cancelled_);
  auto code=curl_easy_perform(curl.get());
  if(code!=CURLE_OK || input.bad() || reader.read!=source.size) {
   try{
-   if(scheme_=="ftp")command({"DELE "+quote_path(tmp)});
-   else command({"rm "+quote_path(tmp)});
+   if(scheme_=="ftp")command({"DELE "+quote_path(tmp)},false);
+   else command({"rm "+quote_path(tmp)},false);
   }catch(const std::exception&){ /* best effort cleanup; original file untouched */ }
-  throw std::runtime_error("Remote upload did not complete; original destination preserved");
+  verify_curl(code,cancelled_,"Remote upload failed; original destination preserved");
+  throw std::runtime_error("Remote upload size mismatch; original destination preserved");
  }
  try {
   // Replace existing destination only after the complete upload.
@@ -359,18 +389,20 @@ void RemoteEndpoint::write(const std::string& relative,std::istream& input,const
   else command({"rename "+quote_path(tmp)+" "+quote_path(relative)});
  }catch(...){
   try{
-   if(scheme_=="ftp")command({"DELE "+quote_path(tmp)});
-   else command({"rm "+quote_path(tmp)});
+   if(scheme_=="ftp")command({"DELE "+quote_path(tmp)},false);
+   else command({"rm "+quote_path(tmp)},false);
   }catch(const std::exception&){}
   throw;
  }
 }
 void RemoteEndpoint::make_directory(const std::string& relative){
+ if(cancelled_&&cancelled_())throw RunCancelled();
  auto key=validate_relative(relative);
  if(scheme_=="ftp")command({"MKD "+quote_path(key)});
  else command({"mkdir "+quote_path(key)});
 }
 void RemoteEndpoint::remove(const std::string& relative){
+ if(cancelled_&&cancelled_())throw RunCancelled();
  auto key=validate_relative(relative);
  auto item=cached_.find(key);
  if(item==cached_.end())throw std::runtime_error("Remote delete refused: path not present in last scan");

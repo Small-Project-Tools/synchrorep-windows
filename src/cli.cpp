@@ -1,17 +1,24 @@
 #include "synchrorep/engine.hpp"
 #include <iostream>
 int main(int argc,char**argv){
- if(argc<4||argc>5){
-  std::cerr<<"Usage: synchrorep LEFT RIGHT STATE_FILE [--dry-run]\n";
+ if(argc<4||argc>6){
+  std::cerr<<"Usage: synchrorep LEFT RIGHT STATE_FILE [--dry-run] [--resume]\n";
   std::cerr<<"Endpoint types: local filesystem, wsl://distro/path (Windows only), FTP/SFTP when built with SYNCHROREP_REMOTE=ON.\n";
   return 2;
  }
  try{
-  const bool dry=argc==5&&std::string(argv[4])=="--dry-run";
-  if(argc==5&&!dry)return 2;
+  bool dry=false,resume=false;
+  for(int i=4;i<argc;++i){
+   std::string option=argv[i];
+   if(option=="--dry-run")dry=true;
+   else if(option=="--resume")resume=true;
+   else return 2;
+  }
   auto left=synchrorep::open_endpoint(argv[1]);
   auto right=synchrorep::open_endpoint(argv[2]);
-  synchrorep::Engine engine(argv[3]);
+  synchrorep::Options options;
+  options.resume_interrupted=resume;
+  synchrorep::Engine engine(argv[3],options);
   const auto decisions=engine.plan(*left,*right);
   for(const auto& d:decisions){
    if(d.action==synchrorep::Action::None)continue;

@@ -5,6 +5,8 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <functional>
+#include <stdexcept>
 
 namespace synchrorep {
 namespace fs = std::filesystem;
@@ -19,11 +21,16 @@ struct Entry {
  std::string hash; // SHA-256 in hex; empty for directories or missing files.
 };
 using Snapshot = std::map<std::string, Entry>;
+struct RunCancelled : std::runtime_error {
+ RunCancelled():std::runtime_error("Synchronization cancelled"){}
+};
 
 class Endpoint {
 public:
  virtual ~Endpoint() = default;
  virtual std::string identity() const = 0;
+ // Bound for the duration of a plan/run; remote libcurl may abort mid-transfer.
+ virtual void set_cancellation(std::function<bool()>) const {}
  virtual Snapshot scan() const = 0;
  virtual std::unique_ptr<std::istream> read(const std::string& relative) const = 0;
  virtual void write(const std::string& relative, std::istream& input, const Entry& source) = 0;

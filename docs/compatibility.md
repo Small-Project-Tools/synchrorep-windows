@@ -46,7 +46,7 @@ Les fichiers sont lus intégralement lors du calcul SHA-256. Une erreur de listi
 
 Le format `SYNCHROREP4` stocke pour chaque fichier les empreintes SHA-256 des deux extrémités. Les anciens formats `SYNCHROREP3` et SQLite GNOME ne sont pas interprétés : ils provoquent une erreur et nécessitent une migration contrôlée. L'historique est lié au couple ordonné d'emplacements.
 
-Les transferts sont préparés via des fichiers temporaires et vérifiés avant d'enregistrer le nouvel état. Cela **ne garantit pas une transaction** sur l'ensemble des fichiers : la corbeille, un journal durable, la récupération après interruption et la gestion des modifications concurrentes complexes restent à développer.
+Les transferts sont préparés via des fichiers temporaires et vérifiés avant d'enregistrer le nouvel état. Cela **ne garantit pas une transaction** sur l'ensemble des fichiers : la corbeille, un journal de recuperation controlee et la reprise manuelle apres interruption et la gestion des modifications concurrentes complexes restent à développer.
 
 ## Compilation et CI
 
@@ -65,3 +65,9 @@ Les transferts sont préparés via des fichiers temporaires et vérifiés avant 
 ### Execution
 
 Le moteur propose des callbacks de progression et d'annulation cooperative, des resolutions individuelles et une conservation de l'historique precedent lors d'une interruption. Voir docs/execution.md.
+
+## Journal de recuperation 0.6
+
+Le moteur ecrit un journal des operations et impose une reprise explicite (option --resume). La reprise recalcule toutes les decisions avant de reprendre.
+
+Les fichiers de staging partiels laisses par un processus brutalement arrete sont detectes et bloquent la synchronisation au lieu d etre propages. Une inspection et un nettoyage manuel sont necessaires. Le journal ne remplace pas une transaction multi-fichiers.

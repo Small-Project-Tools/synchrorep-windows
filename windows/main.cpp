@@ -30,7 +30,7 @@ enum Control : int {
  IdRightUser=110,IdRightPassword=111,IdKnownHosts=112,
  IdRemember=113,IdLoadCredentials=114,IdPolicy=115,IdDeletes=116,
  IdPreview=117,IdExecute=118,IdChanges=119,IdExplorer=120,
- IdCancel=121,IdKeepLeft=122,IdKeepRight=123,IdSkip=124,IdProgress=125,IdStatus=126
+ IdCancel=121,IdKeepLeft=122,IdKeepRight=123,IdSkip=124,IdProgress=125,IdStatus=126,IdResume=127
 };
 HWND controls[130]{};
 HWND mainWindow=nullptr;
@@ -47,6 +47,7 @@ struct JobSettings {
  std::string leftUser,leftPassword,rightUser,rightPassword;
  std::map<std::string,ConflictChoice> overrides;
  bool execute=false;
+ bool resume=false;
 };
 
 
@@ -211,7 +212,7 @@ void setBusy(bool running){
  for(int id:{IdProfiles,IdNew,IdSave,IdDelete,IdName,IdLeft,IdRight,
   IdLeftUser,IdLeftPassword,IdRightUser,IdRightPassword,IdKnownHosts,
   IdRemember,IdLoadCredentials,IdPolicy,IdDeletes,IdPreview,IdExecute,
-  IdExplorer,IdKeepLeft,IdKeepRight,IdSkip})
+  IdExplorer,IdKeepLeft,IdKeepRight,IdSkip,IdResume})
    EnableWindow(controls[id],!running);
  EnableWindow(controls[IdCancel],running);
 }
@@ -226,6 +227,7 @@ JobSettings getJobSettings(bool execute){
  settings.rightPassword=toUtf8(get(IdRightPassword));
  settings.overrides=overrides;
  settings.execute=execute;
+ settings.resume=SendMessageW(controls[IdResume],BM_GETCHECK,0,0)==BST_CHECKED;
  return settings;
 }
 void startSync(bool execute){
@@ -246,7 +248,7 @@ void startSync(bool execute){
    auto b=endpointFrom(settings.profile.right,settings.rightUser,
                        settings.rightPassword,settings.profile.known_hosts);
    Options options{settings.profile.conflict,settings.profile.propagate_deletions,
-                   settings.overrides};
+                   settings.overrides,settings.resume};
    Engine engine(statePath(*a,*b),std::move(options));
    result.decisions=engine.plan(*a,*b,callbacks);
    if(settings.execute){
@@ -292,6 +294,7 @@ std::wstring phaseName(Phase phase){
  case Phase::Delete:return L"Delete";
  case Phase::VerifyLeft:return L"Verify left";
  case Phase::VerifyRight:return L"Verify right";
+ case Phase::Journal:return L"Write recovery journal";
  case Phase::Save:return L"Save history";
  case Phase::Complete:return L"Complete";
  }
@@ -452,6 +455,8 @@ void initializeControls(HWND h){
  button(h,L"Synchronize",IdExecute,575,505,291);
  button(h,L"Cancel operation",IdCancel,320,543,260);
  EnableWindow(controls[IdCancel],FALSE);
+ place(h,L"BUTTON",L"Resume interrupted run (rescan + reconcile)",
+       BS_AUTOCHECKBOX|WS_TABSTOP,592,546,274,24,IdResume);
  label(h,L"Pending operations / conflicts (select a conflict)",320,586,540);
  place(h,L"LISTBOX",L"",WS_BORDER|WS_VSCROLL|WS_HSCROLL|LBS_NOTIFY,320,608,546,100,IdChanges);
  button(h,L"Keep left",IdKeepLeft,320,712,170);
