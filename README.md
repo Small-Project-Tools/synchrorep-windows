@@ -1,45 +1,66 @@
 # Synchrorep Windows
 
-Windows port of [Synchrorep](https://github.com/sebk69/Synchrorep), originally written by Sébastien Kus (2009–2019), GPL-3.0.
+Native Windows port of [Synchrorep](https://github.com/sebk69/Synchrorep)
+by Sébastien Kus (2009–2019). Original project GPL-3.0.
 
-## Status: initial, incomplete implementation
+**Development status: an incomplete prototype. Do not use it on important data.**
 
-The current repository contains an initial **native C++20** bidirectional synchronization engine, a basic Win32 window, and a Windows Explorer **classic context menu** registration script. It is **not yet feature-equivalent** to the original GTK application.
+## What's implemented
 
-The first engine prototype supports local folders, including Windows UNC WSL shares when they are accessible through the Windows filesystem. FTP/SFTP adapters, original UI parity, and the original SQLite state format are **not implemented yet**. **Do not run it against irreplaceable data.**
+- Portable C++20 synchronization comparison engine with a clear backend API.
+- Two-way propagation of creations, changes and one-sided deletions.
+- Previous-snapshot conflict detection, byte comparisons on bilateral changes.
+- Conflict handling policies (Ask/Ignore/Stop/Newest/Oldest) at engine level.
+- Snapshot identity tied to the exact ordered pair of endpoints.
+- Local endpoint (Windows path / UNC) and Windows-only `wsl://` to UNC mapping.
+- Basic Win32 desktop app (two folders, Preview, Synchronize) and Explorer
+  classic context menu install script.
+- A Linux regression suite and a Windows MinGW cross-build.
 
-### Semantics
+FTP and SFTP are **not functional yet**: requesting them fails explicitly.
 
-- Tracks both sides in a persisted snapshot; the original Synchrorep used an SQLite history. This initial port uses its own text snapshot; it does not pretend to be compatible.
-- Propagates creations and one-sided changes and deletions.
-- Blocks an entire run if simultaneous modifications would conflict (no silent overwrite).
-- Rejects symbolic links.
-- Does not yet implement original behavior options (trash, policies, per-file conflict prompts, groups, audit trail, MD5 mode).
-- Avoids deleting files when no prior state exists, but cannot guarantee transactions across file systems.
+## Build/test
 
-### Build and test
 ```sh
 cmake -S . -B build
-cmake --build build
+cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-Build on Windows with Visual Studio CMake or through the GitLab MinGW cross-build pipeline.
+### CLI (Linux, for tests)
 
-### UI and context menu
-
-Build `synchrorep.exe`. Register the context menu for the current user:
-
-```powershell
-.\windows\install-context-menu.ps1 -ExePath .\build-win\synchrorep.exe
+```sh
+./build/synchrorep /tmp/left /tmp/right /tmp/synchrorep.state --dry-run
+./build/synchrorep /tmp/left /tmp/right /tmp/synchrorep.state
 ```
 
-Right-click a folder and select **Synchronize with Synchrorep**. The selected folder is loaded as the left side.
+### Windows
 
-### Next milestones
-1. Reproduce original engine behavior exactly (capture and port regression cases from `tc_files_binomial.cpp`, `execute.cpp`, `ac_behavior.cpp`).
-2. Introduce `IEndpoint` abstraction for local, WSL, FTP and SFTP, with proper remote timestamps, atomic uploads, credentials and hostname validation.
-3. Recreate all original GTK screens (configuration cards, global policies, conflict resolution, logs and progress) in a modern Windows UI.
-4. Native Explorer extension (Windows 11 modern menu), installer and signed binaries.
+Build with Visual Studio / CMake, or use the MinGW GitLab build artifact.
+The app is linked as a Windows GUI executable.
 
-GPL-3.0 applies to the inherited design/source; preserve original copyright notices when moving original code.
+Register Explorer's classic per-user context menu:
+
+```powershell
+.\windows\install-context-menu.ps1 -ExePath "C:\path\to\synchrorep.exe"
+```
+
+In Windows 11 the entry may appear under **Show more options**.
+`wsl://Ubuntu/home/user` resolves to a WSL UNC path on Windows with WSL
+installed.
+
+## Compatibility / limits
+
+See [the compatibility matrix](docs/compatibility.md) for the original
+behavior options, missing features, implementation safety guarantees, and
+remaining tasks. The original uses SQLite and offers richer UI and policies;
+this prototype still uses a separate `SYNCHROREP2` text history format.
+
+The engine stages writes before replacing target files but a batch of writes
+and deletions is not transactional yet. In particular, the original trash,
+confirmation dialogs per conflict, MD5 options and logs are not ported.
+
+## License
+
+The original is GPL-3.0. Retain original license and author attribution when
+moving original code. This project continues under GPL-3.0.

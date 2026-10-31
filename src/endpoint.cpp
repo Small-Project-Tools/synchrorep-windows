@@ -1,0 +1,140 @@
+#include "synchrorep/endpoint.hpp"
+#include <algorithm>
+#include <chrono>
+#include <fstream>
+#include <stdexcept>
+#include <string_view>
+#include <system_error>
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
+namespace synchrorep {
+namespace {
+bool starts(const std::string& value, std::string_view prefix) {
+ return value.compare(0,prefix.size(),prefix)==0;
+}
+bool valid_relative(const std::string& relative) {
+ if(relative.empty() || relative.front()=='/' || relative.front()=='\\')return false;
+ fs::path p=fs::path(std::u8string(reinterpret_cast<const char8_t*>(relative.data()),relative.size()));
+ if(p.is_absolute() || p.has_root_name())return false;
+ for(const auto& part:p)if(part==".." || part==".")return false;
+ if(relative.find('\\')!=std::string::npos)return false;
+ return true;
+}
+std::int64_t timestamp(const fs::path& p) {
+ return static_cast<std::int64_t>(fs::last_write_time(p).time_since_epoch().count());
+}
+Entry stat(const fs::path& path) {
+ std::error_code ec;
+ auto s=fs::symlink_status(path,ec);
+ if(ec || s.type()==fs::file_type::not_found)throw std::runtime_error("Filesystem entry disappeared: "+path.string());
+ if(fs::is_symlink(s))throw std::runtime_error("Symbolic links are not supported: "+path.string());
+ if(!fs::is_directory(s) && !fs::is_regular_file(s))throw std::runtime_error("Unsupported filesystem object: "+path.string());
+ Entry e; e.exists=true;e.directory=fs::is_directory(s);
+ if(!e.directory){e.size=fs::file_size(path);e.modified=timestamp(path);}
+ return e;
+}
+void atomic_replace(const fs::path& tmp,const fs::path& dst) {
+ std::error_code ec;
+ fs::rename(tmp,dst,ec);
+ if(!ec)return;
+#ifdef _WIN32
+ // Windows rename() does not replace an existing destination.
+ if(fs::exists(dst) && ReplaceFileW(dst.c_str(),tmp.c_str(),nullptr,0,nullptr,nullptr))return;
+#endif
+ throw fs::filesystem_error("Unable to atomically replace destination",tmp,dst,ec);
+}
+std::string native_identity(const fs::path& root) {
+ auto u8=root.generic_u8string();
+ return "file:"+std::string(u8.begin(),u8.end());
+}
+}
+LocalEndpoint::LocalEndpoint(fs::path root) : root_(fs::absolute(std::move(root)).lexically_normal()) {
+ if(fs::is_symlink(fs::symlink_status(root_)))throw std::runtime_error("Directory root must not be a symbolic link");
+ if(!fs::is_directory(root_))throw std::runtime_error("Directory does not exist: "+root_.string());
+}
+std::string LocalEndpoint::identity()const {return native_identity(root_);}
+fs::path LocalEndpoint::within(const std::string& relative) const {
+ if(!valid_relative(relative))throw std::invalid_argument("Invalid relative path: "+relative);
+ return root_/fs::path(std::u8string(reinterpret_cast<const char8_t*>(relative.data()),relative.size()));
+}
+Snapshot LocalEndpoint::scan()const{
+ Snapshot found;
+ for(auto i=fs::recursive_directory_iterator(root_);i!=fs::recursive_directory_iterator();++i) {
+  auto key=i->path().lexically_relative(root_).generic_u8string();
+  found.emplace(std::string(key.begin(),key.end()),stat(i->path()));
+ }
+ return found;
+}
+std::unique_ptr<std::istream> LocalEndpoint::read(const std::string& relative)const {
+ auto file=within(relative);
+ auto stream=std::make_unique<std::ifstream>(file,std::ios::binary);
+ if(!*stream)throw std::runtime_error("Cannot read file: "+file.string());
+ return stream;
+}
+void LocalEndpoint::write(const std::string& relative,std::istream& input,const Entry& source) {
+ if(source.directory)throw std::invalid_argument("Cannot write directory as a file");
+ auto target=within(relative);
+ fs::create_directories(target.parent_path());
+ auto tmp=target;
+ tmp+=".synchrorep-write-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+".tmp";
+ if(fs::exists(tmp))throw std::runtime_error("Temporary target already exists");
+ try {
+  {
+   std::ofstream out(tmp,std::ios::binary|std::ios::trunc);
+   if(!out)throw std::runtime_error("Cannot create temporary file: "+tmp.string());
+   out<<input.rdbuf();out.flush();
+   if(!out || input.bad())throw std::runtime_error("Incomplete transfer: "+relative);
+  }
+  // Do not promote a short transfer. The endpoint must still have the
+  // original file intact if a remote or local input fails.
+  if(fs::file_size(tmp)!=source.size)throw std::runtime_error("Transfer size mismatch: "+relative);
+  atomic_replace(tmp,target);
+  // Preserve native mtime for local-local and WSL UNC transfers.
+  fs::last_write_time(target,fs::file_time_type(fs::file_time_type::duration(source.modified)));
+ } catch(...) {std::error_code ignored;fs::remove(tmp,ignored);throw;}
+}
+void LocalEndpoint::make_directory(const std::string& relative){fs::create_directories(within(relative));}
+void LocalEndpoint::remove(const std::string& relative){
+ const auto p=within(relative);auto s=stat(p);
+ if(!fs::remove(p))throw std::runtime_error("Could not delete "+p.string());
+ (void)s;
+}
+EndpointKind endpoint_kind(const std::string& location) {
+ if(starts(location,"wsl://"))return EndpointKind::Wsl;
+ if(starts(location,"ftp://"))return EndpointKind::Ftp;
+ if(starts(location,"sftp://"))return EndpointKind::Sftp;
+ if(location.find("://")!=std::string::npos)throw std::invalid_argument("Unsupported URI scheme");
+ return EndpointKind::Local;
+}
+fs::path wsl_unc_path(const std::string& uri) {
+ if(endpoint_kind(uri)!=EndpointKind::Wsl)throw std::invalid_argument("Expected wsl:// URI");
+ auto rest=uri.substr(6);
+ const auto slash=rest.find('/');
+ const auto distro=rest.substr(0,slash);
+ if(distro.empty() || distro=="." || distro==".." || distro.find_first_of("\\:@%?#")!=std::string::npos)
+  throw std::invalid_argument("Invalid WSL distribution name");
+ auto sub=slash==std::string::npos?std::string{}:rest.substr(slash+1);
+ // Reject both path traversal and URL-encoded paths; no implicit decoding.
+ if(sub.find('%')!=std::string::npos)throw std::invalid_argument("Encoded WSL URI unsupported");
+ if(!sub.empty()&&!valid_relative(sub))throw std::invalid_argument("Invalid WSL path");
+#ifdef _WIN32
+ std::string p="\\\\wsl.localhost\\"+distro;
+ if(!sub.empty())p+='\\';
+ for(char c:sub)p+=c=='/'?'\\':c;
+ return fs::path(std::u8string(reinterpret_cast<const char8_t*>(p.data()),p.size()));
+#else
+ throw std::runtime_error("wsl:// requires Windows and WSL");
+#endif
+}
+std::unique_ptr<Endpoint> open_endpoint(const std::string& location) {
+ switch(endpoint_kind(location)) {
+ case EndpointKind::Local: return std::make_unique<LocalEndpoint>(fs::path(std::u8string(reinterpret_cast<const char8_t*>(location.data()),location.size())));
+ case EndpointKind::Wsl: return std::make_unique<LocalEndpoint>(wsl_unc_path(location));
+ case EndpointKind::Ftp: case EndpointKind::Sftp:
+  throw std::runtime_error("FTP/SFTP transport not yet implemented; no synchronization performed");
+ }
+ throw std::runtime_error("Unknown endpoint");
+}
+}

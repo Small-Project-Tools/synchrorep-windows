@@ -5,8 +5,8 @@ linux-tests:
  before_script:
   - apt-get update -qq && apt-get install -y -qq cmake
  script:
-  - cmake -S . -B build
-  - cmake --build build
+  - cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+  - cmake --build build --parallel
   - ctest --test-dir build --output-on-failure
 windows-mingw:
  stage: build
@@ -15,6 +15,6 @@ windows-mingw:
   - apt-get update -qq && apt-get install -y -qq cmake g++-mingw-w64-x86-64
  script:
   - cmake -S . -B build-win -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++
-  - cmake --build build-win --target synchrorep
+  - cmake --build build-win --target synchrorep engine_tests --parallel
  artifacts:
   paths: [build-win/synchrorep.exe]
