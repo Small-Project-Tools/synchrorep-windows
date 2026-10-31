@@ -25,10 +25,10 @@ windows-mingw:
   - x86_64-w64-mingw32-objdump -p build-win/synchrorep.exe | grep 'DLL Name'
   - x86_64-w64-mingw32-objdump -p build-win/SynchrorepExplorer.dll | grep 'DllGetClassObject'
   - x86_64-w64-mingw32-objdump -p build-win/SynchrorepExplorer.dll | grep 'DllCanUnloadNow' 
-  - wixl -a x64 -D SourceExe=build-win/synchrorep.exe -D SourceExplorerDll=build-win/SynchrorepExplorer.dll -D SourceLicense=LICENSE -o build-win/synchrorep-windows-0.12.1-lite-x64.msi windows/installer/Synchrorep-Lite.wxs
+  - wixl -a x64 -D SourceExe=build-win/synchrorep.exe -D SourceExplorerDll=build-win/SynchrorepExplorer.dll -D SourceLicense=LICENSE -o build-win/synchrorep-windows-0.12.2-lite-x64.msi windows/installer/Synchrorep-Lite.wxs
   - python3 tests/lite_installer_test.py
  artifacts:
-  paths: [build-win/synchrorep.exe, build-win/SynchrorepExplorer.dll, build-win/startup_registry_tests.exe, build-win/recovery_tests.exe, build-win/synchrorep-windows-0.12.1-lite-x64.msi]
+  paths: [build-win/synchrorep.exe, build-win/SynchrorepExplorer.dll, build-win/startup_registry_tests.exe, build-win/recovery_tests.exe, build-win/synchrorep-windows-0.12.2-lite-x64.msi]
 
 # Optional: requires an authorized Windows runner with VS C++ and vcpkg.
 # It does not block the standard pipeline when no such runner exists.
@@ -43,9 +43,9 @@ windows-msvc-full:
   - ctest --test-dir build-msvc -C Release --output-on-failure
   - if (-not (Get-Command wix -ErrorAction SilentlyContinue)) { dotnet tool install --global wix --version '5.*' }
   - $env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
-  - wix build -arch x64 "-dSourceExe=build-msvc/Release/synchrorep.exe" "-dSourceExplorerDll=build-msvc/Release/SynchrorepExplorer.dll" "-dSourceLicense=LICENSE" windows/installer/Synchrorep.wxs -o synchrorep-windows-0.12.1-x64.msi
+  - wix build -arch x64 "-dSourceExe=build-msvc/Release/synchrorep.exe" "-dSourceExplorerDll=build-msvc/Release/SynchrorepExplorer.dll" "-dSourceLicense=LICENSE" windows/installer/Synchrorep.wxs -o synchrorep-windows-0.12.2-x64.msi
  artifacts:
-  paths: [build-msvc/Release/synchrorep.exe, build-msvc/Release/SynchrorepExplorer.dll, synchrorep-windows-0.12.1-x64.msi]
+  paths: [build-msvc/Release/synchrorep.exe, build-msvc/Release/SynchrorepExplorer.dll, synchrorep-windows-0.12.2-x64.msi]
 
 windows-sparse-unsigned:
  stage: build
@@ -55,9 +55,9 @@ windows-sparse-unsigned:
  script:
   - cmake -S . -B build-msvc -A x64 -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static -DSYNCHROREP_REMOTE=ON
   - cmake --build build-msvc --config Release --parallel
-  - ./windows/sparse/package.ps1 -ApplicationDirectory "build-msvc/Release" -Output "Synchrorep.Windows.0.12.1.sparse-unsigned.msix"
+  - ./windows/sparse/package.ps1 -ApplicationDirectory "build-msvc/Release" -Output "Synchrorep.Windows.0.12.2.sparse-unsigned.msix"
  artifacts:
-  paths: [Synchrorep.Windows.0.12.1.sparse-unsigned.msix]
+  paths: [Synchrorep.Windows.0.12.2.sparse-unsigned.msix]
 
 
 # Optional Wine integration validates the actual Windows executable and its
@@ -78,10 +78,10 @@ windows-wine-smoke:
   - xvfb-run -a wineboot -u
   - xvfb-run -a wine build-win/startup_registry_tests.exe
   - xvfb-run -a wine build-win/recovery_tests.exe
-  - xvfb-run -a wine msiexec /i build-win/synchrorep-windows-0.12.1-lite-x64.msi /qn
+  - xvfb-run -a wine msiexec /i build-win/synchrorep-windows-0.12.2-lite-x64.msi /qn
   - export SYNCHROREP_EXE="$WINEPREFIX/drive_c/Program Files/Synchrorep/synchrorep.exe"
   - test -f "$SYNCHROREP_EXE"
   - cmp build-win/synchrorep.exe "$SYNCHROREP_EXE"
   - xvfb-run -a bash tests/wine_autostart_smoke.sh
-  - xvfb-run -a wine msiexec /x build-win/synchrorep-windows-0.12.1-lite-x64.msi /qn
+  - xvfb-run -a wine msiexec /x build-win/synchrorep-windows-0.12.2-lite-x64.msi /qn
   - test ! -e "$SYNCHROREP_EXE"

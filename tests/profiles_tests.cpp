@@ -61,6 +61,17 @@ int main(){
   try{(void)store.load();}catch(const std::runtime_error&){rejected=true;}
   assert(rejected);
   store.save({p});
+  // Do not persist two auto-start mirrors that can erase each other's target.
+  Profile secondMirror=p;
+  secondMirror.name="other";
+  secondMirror.left="D:/other";
+  secondMirror.right="sftp://127.0.0.1:22/a b/subfolder";
+  assert([&]{
+   try{store.save({p,secondMirror});}
+   catch(const std::invalid_argument&){return true;}
+   return false;
+  }());
+  assert(store.load().size()==1);
   bool duplicate=false;
   try{store.save({p,p});}catch(const std::invalid_argument&){duplicate=true;}
   assert(duplicate);

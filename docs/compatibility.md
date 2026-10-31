@@ -149,3 +149,18 @@ Les tests de la base Win32 (registre de demarrage, archives) ont ete executes
 sous Wine, ainsi qu'un scenario de miroir automatique depuis un exe installe
 par le MSI. La Corbeille native et la connexion interactive Windows 11 restent
 a verifier sur une machine Windows reelle.
+
+
+## Reservations des destinations des miroirs (0.12.2)
+
+Les profils auto-demarres ne peuvent plus utiliser la meme destination
+ou des destinations imbriquees. Leurs chemins sont normalises de facon
+conservative : majuscules/minuscules et separateurs Windows, correspondance
+UNC/WSL et ports standards FTP/SFTP. Un mutex par destination empeche
+deux miroirs distincts d'ecrire dans le meme dossier. Les miroirs vers
+des destinations independantes restent utilisables en parallele.
+
+Le verrou historique source/cible est conserve pendant les mises a jour
+pour eviter une double execution du meme profil avec 0.12.1 et 0.12.2.
+Les alias reseau vers un meme volume restent une limite ; ils doivent
+etre evites manuellement.

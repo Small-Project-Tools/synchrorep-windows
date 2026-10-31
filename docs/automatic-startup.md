@@ -111,3 +111,24 @@ préfixe Wine. L'utilisateur doit décocher le lancement automatique
 avant une désinstallation sur Windows pour éviter de conserver des valeurs
 HKCU Run pointant vers un exécutable supprimé ; le MSI ne supprime pas
 arbitrairement les profils ni les valeurs dynamiques de chaque utilisateur.
+
+
+## Protection contre plusieurs miroirs vers une meme cible (0.12.2)
+
+Un profil miroir ne peut pas partager sa destination avec un autre
+miroir a demarrage automatique, ni cibler un sous-dossier d'une
+destination deja reservee. Les profils sont controles avant leur
+enregistrement et a nouveau avant tout lancement automatique.
+Un mutex Windows utilise l'identite normalisee de la destination,
+et non plus la paire source/cible, pour bloquer les lancements concurrents.
+
+Cette normalisation est conservative et syntaxique : elle ne permet pas
+de detecter tous les alias materiels (par exemple une lettre de lecteur
+et un partage reseau qui pointent vers le meme volume). Ne pas configurer
+de miroirs croises vers le meme espace de stockage via des alias differents.
+
+
+Lors de la migration depuis la version 0.12.1, le processus conserve
+egalement le mutex historique du couple source/cible. Un ancien binaire
+toujours actif sur exactement le meme profil empeche ainsi le nouveau
+binaire de demarrer simultanement.

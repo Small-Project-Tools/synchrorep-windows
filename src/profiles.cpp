@@ -1,4 +1,5 @@
 #include "synchrorep/profiles.hpp"
+#include "synchrorep/startup_profiles.hpp"
 #include <fstream>
 #include <iomanip>
 #include <stdexcept>
@@ -39,6 +40,8 @@ std::vector<Profile> ProfileStore::load() const {
   profiles.push_back(std::move(profile));
   if(profiles.size()>1000)throw std::runtime_error("Too many profiles");
  }
+ // Do not throw on legacy overlapping profiles during load: users must
+ // still be able to open their settings and correct them.
  return profiles;
 }
 void ProfileStore::save(const std::vector<Profile>& profiles) const {
@@ -50,6 +53,8 @@ void ProfileStore::save(const std::vector<Profile>& profiles) const {
      !names.insert(p.name).second)
    throw std::invalid_argument("Invalid or duplicate profile");
  }
+ // Reject unsafe automatic mirror destinations before changing the file.
+ (void)startup_entries(profiles);
  auto parent=file_.parent_path();
  if(!parent.empty())fs::create_directories(parent);
  auto tmp=file_;tmp+=".tmp";auto bak=file_;bak+=".bak";

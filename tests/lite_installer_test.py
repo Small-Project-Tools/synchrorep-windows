@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Validate the offline, cross-built Windows MSI (local/WSL edition)."""
 import re
+import uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -15,6 +16,9 @@ assert version and product.attrib["Version"] == version.group(1)
 assert product.attrib["UpgradeCode"] == "E7933186-3749-4B61-AD35-68A48EB337CD"
 assert re.fullmatch(r"[A-F0-9]{8}(?:-[A-F0-9]{4}){3}-[A-F0-9]{12}", product.attrib["Id"])
 assert product.attrib["Id"] != "*"
+assert product.attrib["Id"] == str(
+    uuid.uuid5(uuid.NAMESPACE_URL, f"Synchrorep-Lite-x64/Product/{version.group(1)}")
+).upper()
 files = product.findall(".//w:File", ns)
 assert {f.attrib["Id"] for f in files} == {"AppFile", "ExtensionFile", "LicenseFile"}
 assert {f.attrib["Source"] for f in files} == {

@@ -51,6 +51,19 @@ int main(){
   const auto entries=startup_entries({a,b});
   assert(entries.size()==2);
   winui::synchronize_startup({a,b},executable,temp);
+  // The same destination must resolve to the SAME cross-process mutex,
+  // even when profiles use different separators or drive letter case.
+  const auto mutexName=mirror_target_mutex("C:/shared/mirror");
+  const std::wstring mutexWide(mutexName.begin(),mutexName.end());
+  HANDLE first=CreateMutexW(nullptr,FALSE,mutexWide.c_str());
+  assert(first!=nullptr);
+  assert(GetLastError()!=ERROR_ALREADY_EXISTS);
+  const auto alias=mirror_target_mutex("c:\\\\SHARED\\\\MIRROR\\\\");
+  assert(alias==mutexName);
+  HANDLE second=CreateMutexW(nullptr,FALSE,mutexWide.c_str());
+  assert(second!=nullptr && GetLastError()==ERROR_ALREADY_EXISTS);
+  CloseHandle(second);
+  CloseHandle(first);
   for(const auto& entry:entries){
    const auto name=to_wide(entry.value_name);
    assert(exists(key,name));

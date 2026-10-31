@@ -25,6 +25,7 @@
 #include "synchrorep/sha256.hpp"
 #include "synchrorep/mirror_monitor.hpp"
 #include "startup_registry.hpp"
+#include "synchrorep/startup_profiles.hpp"
 
 namespace {
 using namespace synchrorep;
@@ -56,23 +57,40 @@ constexpr UINT TrayId=5;
 bool trayAdded=false;
 bool activeMirror=false;
 HANDLE mirrorMutex=nullptr;
+HANDLE legacyMirrorMutex=nullptr;
 void releaseMirrorLock(){
+ if(legacyMirrorMutex){CloseHandle(legacyMirrorMutex);legacyMirrorMutex=nullptr;}
  if(mirrorMutex){CloseHandle(mirrorMutex);mirrorMutex=nullptr;}
 }
 void acquireMirrorLock(const Profile& profile){
  if(mirrorMutex)throw std::runtime_error("A mirror already runs in this window");
- const auto key=profile.left+"\n"+profile.right;
- Sha256 digest;
- digest.update(reinterpret_cast<const unsigned char*>(key.data()),key.size());
- const auto hash=digest.finish();
- const auto lockName=L"Local\\SynchrorepMirror-"+std::wstring(hash.begin(),hash.end());
+ const auto key=mirror_target_mutex(profile.right);
+ const auto lockName=std::wstring(key.begin(),key.end());
  HANDLE handle=CreateMutexW(nullptr,FALSE,lockName.c_str());
- if(!handle)throw std::runtime_error("Cannot create mirror instance lock");
+ if(!handle)throw std::runtime_error("Cannot create mirror destination lock");
  if(GetLastError()==ERROR_ALREADY_EXISTS){
   CloseHandle(handle);
-  throw std::runtime_error("This source and target mirror is already running");
+  throw std::runtime_error("Another continuous mirror already uses this destination");
+ }
+ // During upgrades, also retain the 0.12.1 pair-based lock. This prevents
+ // the same saved profile from running concurrently across old/new binaries.
+ const auto previous=profile.left+"\n"+profile.right;
+ Sha256 hash;
+ hash.update(reinterpret_cast<const unsigned char*>(previous.data()),previous.size());
+ const auto previousHash=hash.finish();
+ const auto legacyName=L"Local\\SynchrorepMirror-"+std::wstring(previousHash.begin(),previousHash.end());
+ HANDLE legacy=CreateMutexW(nullptr,FALSE,legacyName.c_str());
+ if(!legacy){
+  CloseHandle(handle);
+  throw std::runtime_error("Cannot create backward-compatible mirror instance lock");
+ }
+ if(GetLastError()==ERROR_ALREADY_EXISTS){
+  CloseHandle(legacy);
+  CloseHandle(handle);
+  throw std::runtime_error("This mirror is already running in another Synchrorep version");
  }
  mirrorMutex=handle;
+ legacyMirrorMutex=legacy;
 }
 void showMainWindow(){
  ShowWindow(mainWindow,SW_RESTORE);
@@ -329,7 +347,14 @@ void startSync(bool execute,bool trustedStartup=false){
  setBusy(true);
  const bool mirrorMode=settings.profile.mode==SyncMode::Mirror&&execute;
  try{
-  if(mirrorMode)acquireMirrorLock(settings.profile);
+  if(mirrorMode){
+   for(const auto& other:profiles){
+    if(other.mode!=SyncMode::Mirror||other.name==settings.profile.name)continue;
+    if(mirror_targets_overlap(settings.profile.right,other.right))
+     throw std::runtime_error("Another configured mirror uses this destination or a parent/subfolder");
+   }
+   acquireMirrorLock(settings.profile);
+  }
   activeMirror=mirrorMode;
   if(activeMirror)addTray();
   job->start([settings=std::move(settings)](const RunCallbacks& callbacks){
@@ -346,7 +371,8 @@ void startSync(bool execute,bool trustedStartup=false){
    if(settings.execute){
     const bool conflicts=std::any_of(result.decisions.begin(),result.decisions.end(),
       [](const Decision& decision){return decision.action==Action::Conflict;});
-    if(conflicts&&settings.profile.conflict!=ConflictPolicy::Ignore){
+    if(conflicts&&(settings.profile.mode==SyncMode::Mirror||
+                   settings.profile.conflict!=ConflictPolicy::Ignore)){
      result.error="Resolve each conflict using the Keep left, Keep right, or Skip buttons, then retry.";
     }else{
      if(settings.profile.mode==SyncMode::Mirror){
@@ -863,6 +889,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int show){
   }
   updateList();
   if(autoProfile){
+   (void)startup_entries(profiles);
    auto wanted=toUtf8(*autoProfile);
    int found=-1;
    for(std::size_t i=0;i<profiles.size();++i)

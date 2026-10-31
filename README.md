@@ -217,10 +217,10 @@ sans reprise destructive automatique.
 Voir [demarrage automatique](docs/automatic-startup.md).
 
 
-## Windows 0.12.1 — version installable Lite
+## Windows 0.12.2 — version installable Lite
 
 La CI genere maintenant un MSI x64 installable avec la compilation MinGW
-\`synchrorep-windows-0.12.1-lite-x64.msi\`. Le MSI inclut l'application
+\`synchrorep-windows-0.12.2-lite-x64.msi\`. Le MSI inclut l'application
 et la DLL d'integration Explorer ; il n'enregistre **pas** automatiquement
 un profil miroir au demarrage. Chaque activation doit etre explicite
 dans l'interface (**Start at Windows login** puis **Save**).
@@ -244,3 +244,23 @@ Le MSI Lite 0.12.1 utilise un ProductCode et des Component GUID stables
 pour une même version. L'installation, la synchronisation automatique,
 la désinstallation et la disparition de l'exécutable ont été validées dans
 un préfixe Wine neuf. Un test sur Windows 11 réel reste nécessaire.
+
+
+## Protection des destinations multi-miroirs (0.12.2)
+
+Deux profils de demarrage automatique ne peuvent plus cibler le meme
+dossier, ni des destinations imbriquees. La validation tient compte des
+variantes de chemins Windows (casse, slash et anti-slash), des adresses
+WSL/UNC et des ports FTP/SFTP par defaut. Les miroirs vers des dossiers
+independants restent utilisables simultanement.
+
+Un verrou Windows nomme par destination, plutot que par couple
+source/cible, empeche deux sources concurrentes de modifier une meme
+destination. Une ancienne configuration de demarrage automatique
+contradictoire est refusee avant le lancement des mirroirs, et le profil
+ne peut pas etre sauvegarde tant que ses cibles se chevauchent.
+
+Le MSI Lite x64 est disponible en version 0.12.2. Pendant la mise
+a niveau depuis la version 0.12.1, Synchrorep conserve aussi le
+verrou historique du couple source/cible pour prevenir un double
+demarrage entre les deux versions.

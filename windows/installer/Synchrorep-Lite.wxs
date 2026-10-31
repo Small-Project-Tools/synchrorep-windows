@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- WiX 3 dialect for cross-compiled local/WSL-only MSI via wixl on Linux. -->
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-  <Product Id="1EF9FD49-845D-5263-AE48-EA6C13EBF0F9" Name="Synchrorep Lite" Manufacturer="Synchrorep contributors"
-           Version="0.12.1" Language="1033"
+  <Product Id="0518E72C-C75B-52C8-9CBD-A0D2B4527987" Name="Synchrorep Lite" Manufacturer="Synchrorep contributors"
+           Version="0.12.2" Language="1033"
            UpgradeCode="E7933186-3749-4B61-AD35-68A48EB337CD">
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"/>
     <MajorUpgrade DowngradeErrorMessage="A newer Synchrorep version is already installed."/>
