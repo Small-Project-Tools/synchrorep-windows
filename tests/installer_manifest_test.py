@@ -15,8 +15,8 @@ assert match and match.group(1) == package.attrib["Version"]
 assert package.attrib["Scope"] == "perMachine"
 assert re.fullmatch(r"[0-9A-Fa-f-]{36}", package.attrib["UpgradeCode"])
 files = package.findall(".//w:File", ns)
-assert {item.attrib["Id"] for item in files} == {"MainExecutable", "LicenseDocument"}
-assert {item.attrib["Source"] for item in files} == {"$(var.SourceExe)", "$(var.SourceLicense)"}
+assert {item.attrib["Id"] for item in files} == {"MainExecutable", "ExplorerExtension", "LicenseDocument"}
+assert {item.attrib["Source"] for item in files} == {"$(var.SourceExe)", "$(var.SourceExplorerDll)", "$(var.SourceLicense)"}
 assert len(package.findall(".//w:Component", ns)) == len(files)
 assert len(package.findall(".//w:ComponentRef", ns)) == len(files)
 print("WiX MSI metadata validated")

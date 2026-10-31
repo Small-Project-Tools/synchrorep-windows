@@ -155,3 +155,19 @@ La fonctionnalite a passe la compilation MinGW et les tests de politiques
 de suppression avec un endpoint de simulation. Le fonctionnement effectif
 de la Corbeille sous Windows 11 attend une validation native.
 Consulter [les details et limites](docs/windows-recycle.md).
+
+
+## Intégration moderne Windows 11 (0.10)
+
+La DLL COM `SynchrorepExplorer.dll` expose une commande IExplorerCommand
+pour les dossiers sélectionnés. La commande lance uniquement l’interface
+principale, sans réseau ni synchronisation dans le processus Explorer.
+Le binaire et la DLL sont compilés en x64 par la CI MinGW (local/WSL).
+
+**L’apparition dans le menu Windows 11 exige un package MSIX sparse signé**
+associé à l’identité de l’application. Le MSI seul ne suffit pas ; le package
+préparé par le job manuel est non signé. Consulter
+[installation de l’extension Explorer](docs/windows11-explorer.md).
+
+Les tests et la compilation MSVC natifs, la signature MSIX et l’installation
+réelle sous Windows 11 restent nécessaires avant diffusion publique.

@@ -40,7 +40,7 @@ Les fichiers sont lus intégralement lors du calcul SHA-256. Une erreur de listi
 | Deplacer les suppressions vers la corbeille | Corbeille native Windows sur lecteur fixe local ; archive applicative avant operation destructive selon le profil |
 | Groupes de synchronisations | Non implémenté |
 | Fenetres de logs et comportements expert | Journaux JSONL disponibles ; ecran expert non implemente |
-| Extension native moderne Windows 11 | Non implémentée |
+| Extension native moderne Windows 11 | IExplorerCommand et package sparse préparés ; signature et activation natives non encore testées |
 
 ## Historique et récupération
 
@@ -105,3 +105,13 @@ et leurs suppressions selon les regles de synchronisation.
 Les profils V1/V2 restent lisibles ; V3 contient la nouvelle option.
 Le test de fonctionnement Windows 11 reste a executer sur un poste
 Windows reel. Voir [integration Corbeille](windows-recycle.md).
+
+
+## Menu Windows 11 (iteration 0.10)
+
+Une DLL IExplorerCommand et un manifeste sparse MSIX permettent de préparer
+l’intégration au menu contextuel moderne pour les dossiers. L’enregistrement
+réel exige une signature de package, une identité Windows et un test sous
+Windows 11. Le menu classique reste disponible. Le MSI embarque maintenant
+la DLL, mais ne suffit pas à inscrire l’extension dans le menu moderne.
+Voir [installation Windows 11](windows11-explorer.md).

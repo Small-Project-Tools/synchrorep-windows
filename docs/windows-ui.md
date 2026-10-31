@@ -62,3 +62,12 @@ Le bilan de synchronisation distingue les fichiers recycles du total de
 suppressions. En cas d'echec de la Corbeille Windows, l'operation s'arrete
 sans effacement definitif de secours. Le fonctionnement a ete compile et
 teste par simulation, mais pas encore execute sur Windows 11.
+
+
+## Extension moderne Explorer Windows 11 (0.10)
+
+Une bibliothèque native IExplorerCommand est créée en complément du menu
+classique. Elle nécessite un MSIX sparse signé et installé ; ni la simple
+DLL ni l’installeur MSI seul ne suffisent. Les sources, le manifeste, les
+assets et les tests de contrats sont disponibles dans le projet.
+Voir [le guide Windows 11](windows11-explorer.md).
