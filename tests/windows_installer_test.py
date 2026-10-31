@@ -21,7 +21,7 @@ assert product.attrib["Version"]==version
 assert product.attrib["Id"]==str(uuid.uuid5(uuid.NAMESPACE_URL,"Synchrorep-x64/Product/"+version)).upper()
 listed=(build/"windows-dlls.txt").read_text().splitlines()
 assert len(listed)==len(set(listed)) and len(listed)>=5
-assert {"libcurl-4.dll","libssh2-1.dll"}.issubset(listed)
+assert {"libcurl-4.dll","libssh2-1.dll","libsqlite3-0.dll"}.issubset(listed)
 all_dlls=[p.name for p in build.glob("*.dll")]
 assert set(listed).issubset(all_dlls)
 files=product.findall(".//w:File",ns)
@@ -41,6 +41,7 @@ assert (build/"THIRD_PARTY_NOTICES.txt").stat().st_size>500
 lock=args.prefix/"dependencies.lock"
 assert lock.exists() and len(lock.read_text().splitlines())>=5
 assert "mingw-w64-x86_64-curl " in lock.read_text().lower()
+assert "mingw-w64-x86_64-sqlite3 " in lock.read_text().lower()
 assert "libssh2" in lock.read_text().lower() and "openssl" in lock.read_text().lower()
 assert "<!-- RUNTIME" not in (build/"Synchrorep.wxs").read_text()
 print(f"Unified MSI validated: {len(listed)} curl and SSH runtime DLLs, license notices included")

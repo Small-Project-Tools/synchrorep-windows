@@ -16,7 +16,7 @@ root=f"Synchrorep-{args.version}/"
 required={"synchrorep.exe","SynchrorepExplorer.dll","LICENSE",
           "THIRD_PARTY_NOTICES.txt","README-FIRST.txt","SHA256SUMS.txt"}
 dlls=set((args.build/"windows-dlls.txt").read_text(encoding="utf-8").splitlines())
-assert {"libcurl-4.dll","libssh2-1.dll"}.issubset(dlls)
+assert {"libcurl-4.dll","libssh2-1.dll","libsqlite3-0.dll"}.issubset(dlls)
 assert len(dlls)>=5
 with ZipFile(archive) as zipfile:
     names=zipfile.namelist()
