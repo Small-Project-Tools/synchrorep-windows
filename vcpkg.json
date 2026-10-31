@@ -1,6 +1,6 @@
 {
   "name": "synchrorep-windows",
-  "version-string": "0.13.1",
+  "version-string": "0.13.2",
   "dependencies": [
     { "name": "curl", "features": ["ssl", "ssh"] }
   ]

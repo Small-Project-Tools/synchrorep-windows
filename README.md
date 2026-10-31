@@ -19,7 +19,7 @@ Portage natif C++20 de [Synchrorep pour GNOME](https://github.com/sebk69/Synchro
 
 ## Installation Windows
 
-Récupérer le fichier `synchrorep-windows-0.13.1-x64.msi` dans les
+Récupérer le fichier `synchrorep-windows-0.13.2-x64.msi` dans les
 [artefacts de la dernière compilation Windows](https://git.small-project.dev/pub/synchrorep-windows/-/jobs/artifacts/main/browse/build-win?job=windows-mingw).
 
 La CI Linux/MinGW construit désormais **l’unique édition complète** en utilisant
@@ -118,3 +118,28 @@ Le MSI désenregistre ces commandes à la désinstallation. L’accès par le
 nouveau menu compact de Windows 11 reste lié à un package MSIX sparse signé,
 qui n’est pas encore distribué. La commande de l’icône de notification prend
 en charge les notifications classiques et la version 4 des événements Windows.
+
+
+## Fichier libcurl-4.dll introuvable (0.13.2)
+
+L'exécutable Synchrorep dépend de DLL réseau, notamment `libcurl-4.dll`,
+`libssh2-1.dll` et OpenSSL. Il **ne faut jamais télécharger ou lancer
+`synchrorep.exe` seul** depuis les artefacts GitLab.
+
+Deux distributions complètes sont proposées :
+
+- `synchrorep-windows-0.13.2-x64.msi` : installation standard avec
+  menu contextuel Explorer et toutes les DLL au même endroit
+  (`C:\Program Files\Synchrorep`).
+- `synchrorep-windows-0.13.2-x64-portable.zip` : extraire **toute**
+  l'archive dans un dossier avant d'exécuter `Synchrorep-0.13.2\synchrorep.exe`.
+  Tous les fichiers DLL doivent rester à côté de l'exécutable.
+
+La CI refuse dorénavant de publier une archive portable incomplète.
+Elle teste aussi l'exécution réelle de l'application installée et extraite
+avec `--check-runtime` pour vérifier libcurl, FTP et SFTP.
+
+Si l'erreur apparaît malgré le MSI, vérifier que `libcurl-4.dll` se
+trouve dans le même dossier que **l'exécutable réellement lancé** et
+réinstaller le MSI. Les anciens raccourcis ou une copie isolée de
+`synchrorep.exe` peuvent encore pointer ailleurs.

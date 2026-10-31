@@ -1,6 +1,9 @@
 #define UNICODE
 #define _UNICODE
 #include <windows.h>
+#include <curl/curl.h>
+#include <cwchar>
+#include <cstring>
 #include <commctrl.h>
 #include <atomic>
 #include <thread>
@@ -887,6 +890,23 @@ LRESULT CALLBACK windowProc(HWND window,UINT message,WPARAM w,LPARAM l){
 }
 }
 int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int show){
+ // Headless check of the ACTUAL executable and runtime DLLs.
+ // Windows' loader fails before WinMain if a dependent DLL is missing.
+ int argumentCount=0;
+ LPWSTR* arguments=CommandLineToArgvW(GetCommandLineW(),&argumentCount);
+ bool checkRuntime=arguments&&argumentCount==2&&
+    std::wcscmp(arguments[1],L"--check-runtime")==0;
+ if(arguments)LocalFree(arguments);
+ if(checkRuntime){
+  const auto* version=curl_version_info(CURLVERSION_NOW);
+  if(!version||!version->protocols||(version->features&CURL_VERSION_SSL)==0)return 2;
+  bool ftp=false,sftp=false;
+  for(auto protocol=version->protocols;*protocol;++protocol){
+   ftp|=std::strcmp(*protocol,"ftp")==0;
+   sftp|=std::strcmp(*protocol,"sftp")==0;
+  }
+  return ftp&&sftp?0:3;
+ }
  WNDCLASSW wc{};wc.lpfnWndProc=windowProc;wc.hInstance=instance;
  wc.hIcon=LoadIconW(instance,MAKEINTRESOURCEW(101));
  wc.lpszClassName=L"SynchrorepWindow";wc.hCursor=LoadCursor(nullptr,IDC_ARROW);

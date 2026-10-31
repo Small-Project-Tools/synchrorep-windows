@@ -55,3 +55,16 @@ antérieures (y compris la précédente appellation Lite).
 - Les suppressions et remplacements disposent de sauvegardes et d'une
   vérification SHA-256, mais une perte du stockage de récupération reste
   un risque distinct.
+
+
+## Dépendances Windows et artefacts (0.13.2)
+
+L'exécutable MinGW dépend de DLL non système, notamment libcurl, libssh2
+et OpenSSL. Le MSI et une archive portable complète sont les deux seuls
+modes de distribution pris en charge. Un EXE téléchargé isolément n'est
+pas autonome et échouera au chargement des DLL.
+
+La pipeline vérifie toutes les DLL réellement installées par le MSI,
+ainsi que l'exécution de `synchrorep.exe --check-runtime` directement
+dans son dossier d'installation. Le ZIP portable fournit les mêmes DLL,
+accompagnées d'un manifeste de contrôles SHA-256.
