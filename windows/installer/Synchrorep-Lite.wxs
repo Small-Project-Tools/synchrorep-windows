@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- WiX 3 dialect for cross-compiled local/WSL-only MSI via wixl on Linux. -->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Synchrorep Lite" Manufacturer="Synchrorep contributors"
+           Version="0.12.1" Language="1033"
+           UpgradeCode="E7933186-3749-4B61-AD35-68A48EB337CD">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"/>
+    <MajorUpgrade DowngradeErrorMessage="A newer Synchrorep version is already installed."/>
+    <MediaTemplate EmbedCab="yes"/>
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="Synchrorep">
+          <Component Id="AppComponent" Guid="*" Win64="yes">
+            <File Id="AppFile" Source="$(var.SourceExe)" Name="synchrorep.exe" KeyPath="yes">
+              <Shortcut Id="StartMenuSynchrorep" Directory="ProgramMenuFolder"
+                        Name="Synchrorep Lite" WorkingDirectory="INSTALLFOLDER" Advertise="yes"/>
+            </File>
+          </Component>
+          <Component Id="ExtensionComponent" Guid="*" Win64="yes">
+            <File Id="ExtensionFile" Source="$(var.SourceExplorerDll)" Name="SynchrorepExplorer.dll" KeyPath="yes"/>
+          </Component>
+          <Component Id="LicenseComponent" Guid="*" Win64="yes">
+            <File Id="LicenseFile" Source="$(var.SourceLicense)" Name="LICENSE" KeyPath="yes"/>
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+    <Feature Id="MainFeature" Title="Synchrorep Lite" Level="1">
+      <ComponentRef Id="AppComponent"/>
+      <ComponentRef Id="ExtensionComponent"/>
+      <ComponentRef Id="LicenseComponent"/>
+    </Feature>
+  </Product>
+</Wix>

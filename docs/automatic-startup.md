@@ -80,3 +80,26 @@ noms de valeurs de démarrage stables.
 la suppression des seules entrées Synchrorep dans une **clé temporaire de
 test HKCU** ; les entrées des autres applications sont préservées et aucune
 inscription au véritable démarrage n’est modifiée par ce test.
+
+
+## Validation du paquet Lite 0.12.1
+
+Une installation MSI x64 generee par \`wixl\` et le lancement
+\`synchrorep.exe --auto-mirror AutoSmokeCI\` ont ete executes sous Wine
+avec un profil V5 dans un prefixe jetable. Le scenario a couvert :
+
+- copie et suppression initiales vers la cible ;
+- archivage SHA-256 avant suppression ;
+- creation d'un nouveau fichier, propagation des suppressions ;
+- correction d'une modification faite directement sur la cible ;
+- presence d'un journal de synchronisation et absence de journal
+  d'interruption lors de la fin d'un cycle.
+
+Le test \`tests/wine_autostart_smoke.sh\` sert de verification reproductible.
+Il suppose un prefixe Wine de test isole, **ne doit jamais etre execute
+avec les profils d'un utilisateur reel**, et coupe la Corbeille native car
+Wine ne fournit pas l'integration Windows Shell correspondante.
+
+Le test de la Corbeille native et de la connexion a Windows 11 exige
+toujours une session Windows reelle. L'edition Lite ne contient pas
+les transports FTP/SFTP.

@@ -215,3 +215,26 @@ connexion ou un journal de reprise en attente exige une intervention,
 sans reprise destructive automatique.
 
 Voir [demarrage automatique](docs/automatic-startup.md).
+
+
+## Windows 0.12.1 — version installable Lite
+
+La CI genere maintenant un MSI x64 installable avec la compilation MinGW
+\`synchrorep-windows-0.12.1-lite-x64.msi\`. Le MSI inclut l'application
+et la DLL d'integration Explorer ; il n'enregistre **pas** automatiquement
+un profil miroir au demarrage. Chaque activation doit etre explicite
+dans l'interface (**Start at Windows login** puis **Save**).
+
+**Important : cette edition Lite synchronise uniquement les dossiers
+locaux et WSL. Elle n'inclut pas FTP/SFTP.** Pour ces transports,
+le job Windows manuel \`windows-msvc-full\` construit l'edition complete
+avec libcurl/vcpkg et WiX 5. Le menu moderne Windows 11 exige
+toujours un package MSIX sparse signe, independant du MSI.
+
+Telechargement : [artefacts de la compilation Windows](https://git.small-project.dev/pub/synchrorep-windows/-/jobs/artifacts/main/browse/build-win?job=windows-mingw).
+
+Le correctif 0.12.1 ferme le fichier archive apres sa verification SHA-256
+avant de le renommer, une exigence Windows que Linux ne faisait pas apparaitre.
+La generation et l'installation du MSI ainsi que le test du miroir
+automatique ont ete executes sous Wine, en plus des tests C++.
+La validation dans un vrai environnement Windows 11 reste a realiser.

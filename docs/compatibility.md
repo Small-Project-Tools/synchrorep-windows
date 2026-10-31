@@ -135,3 +135,17 @@ du meme couple source/cible est bloquee ; les identifiants FTP/SFTP
 proviennent de Windows Credential Manager. Le registre ne contient
 pas les secrets. Le test de connexion Windows reel reste a mener.
 Voir [demarrage automatique](automatic-startup.md).
+
+
+## Stabilisation Windows et edition Lite (0.12.1)
+
+Le fichier de sauvegarde temporaire est maintenant ferme avant son renommage
+lors de l'archivage ; Windows refusait ce renommage tant que le fichier
+restait ouvert. Le MSI Lite x64 est construit par la CI MinGW et ne contient
+que les transports locaux/WSL. Les exports COM Explorer sont inclus, mais
+l'inscription dans le menu moderne Windows 11 exige toujours un MSIX signe.
+
+Les tests de la base Win32 (registre de demarrage, archives) ont ete executes
+sous Wine, ainsi qu'un scenario de miroir automatique depuis un exe installe
+par le MSI. La Corbeille native et la connexion interactive Windows 11 restent
+a verifier sur une machine Windows reelle.

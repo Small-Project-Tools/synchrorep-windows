@@ -103,9 +103,11 @@ void RecoveryStore::preserve(const Endpoint& endpoint,const std::string& relativ
    if(!out||count!=expected.size)throw std::runtime_error("Incomplete recovery backup");
   }
   durable(tmp);
-  std::ifstream input(tmp,std::ios::binary);
-  if(!input||sha256(input,expected.size)!=expected.hash)
-   throw std::runtime_error("Recovery backup SHA-256 mismatch; destination untouched");
+  {
+   std::ifstream input(tmp,std::ios::binary);
+   if(!input||sha256(input,expected.size)!=expected.hash)
+    throw std::runtime_error("Recovery backup SHA-256 mismatch; destination untouched");
+  } // Windows cannot rename a file while it is open for reading.
   fs::rename(tmp,target);
  }
  {

@@ -90,3 +90,12 @@ la valeur correspondante de HKCU Run. Le miroir se lance dans la zone
 de notification lors de la connexion Windows ; plusieurs miroirs
 peuvent fonctionner dans des processus independants. Voir
 [demarrage automatique](automatic-startup.md).
+
+
+## Version installable Lite (0.12.1)
+
+La CI Windows MinGW publie un MSI x64 installe sous Program Files et nomme
+Synchrorep Lite. Cette edition permet les miroirs locaux/WSL et le demarrage
+automatique par profil, mais ne contient pas FTP/SFTP. Le nom de la fenetre
+et le libelle des dossiers indiquent cette limitation. Voir
+[demarrage automatique](automatic-startup.md).

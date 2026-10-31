@@ -264,6 +264,9 @@ std::unique_ptr<Endpoint> endpointFrom(const std::string& uri,
   const std::string& username,const std::string& password,const std::string& known_hosts) {
  auto kind=endpoint_kind(uri);
  if(kind!=EndpointKind::Ftp && kind!=EndpointKind::Sftp)return open_endpoint(uri);
+#ifndef SYNCHROREP_REMOTE_ENABLED
+ throw std::runtime_error("FTP/SFTP are not available in the Lite build. Install the full MSVC/vcpkg edition.");
+#endif
  RemoteCredentials credentials{username,password,known_hosts,{}};
  if(credentials.username.empty())throw std::runtime_error("Remote username is required");
  return std::make_unique<RemoteEndpoint>(uri,std::move(credentials));
@@ -716,7 +719,11 @@ void initializeControls(HWND h){
 
  label(h,L"Profile name",320,16);
  edit(h,IdName,320,39,546);
+#ifdef SYNCHROREP_REMOTE_ENABLED
  label(h,L"Left directory / URI (local, wsl://, ftp://, sftp://)",320,77,540);
+#else
+ label(h,L"Left directory / URI (local, wsl://) - Lite build",320,77,540);
+#endif
  edit(h,IdLeft,320,100,546);
  label(h,L"Right directory / URI",320,138);
  edit(h,IdRight,320,161,546);
@@ -833,7 +840,12 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int show){
  INITCOMMONCONTROLSEX init{sizeof(init),ICC_PROGRESS_CLASS};
  InitCommonControlsEx(&init);
  RegisterClassW(&wc);
- HWND window=CreateWindowW(wc.lpszClassName,L"Synchrorep - Settings",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|
+#ifdef SYNCHROREP_REMOTE_ENABLED
+ const wchar_t* title=L"Synchrorep - Settings";
+#else
+ const wchar_t* title=L"Synchrorep Lite - Settings (local/WSL)";
+#endif
+ HWND window=CreateWindowW(wc.lpszClassName,title,WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|
    WS_MINIMIZEBOX,CW_USEDEFAULT,CW_USEDEFAULT,900,850,nullptr,nullptr,instance,nullptr);
  if(!window)return 1;
  try{
