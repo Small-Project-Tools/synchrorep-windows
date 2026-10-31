@@ -48,7 +48,14 @@ int main(){
   Profile b=a;
   b.name="Second profile";
   b.left="C:/local-b";
+  b.right="sftp://host/b"; // Independent destination; both may autostart.
   const auto entries=startup_entries({a,b});
+  Profile overlapping=b;
+  overlapping.right="sftp://host/a/nested";
+  bool blocked=false;
+  try{(void)startup_entries({a,overlapping});}
+  catch(const std::invalid_argument&){blocked=true;}
+  assert(blocked);
   assert(entries.size()==2);
   winui::synchronize_startup({a,b},executable,temp);
   // The same destination must resolve to the SAME cross-process mutex,
