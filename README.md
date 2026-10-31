@@ -1,66 +1,65 @@
 # Synchrorep Windows
 
-Native Windows port of [Synchrorep](https://github.com/sebk69/Synchrorep)
-by Sébastien Kus (2009–2019). Original project GPL-3.0.
+Portage Windows de [Synchrorep](https://github.com/sebk69/Synchrorep) (Sébastien Kus, 2009–2019, GPL-3.0).
 
-**Development status: an incomplete prototype. Do not use it on important data.**
+**Prototype en développement : ne pas synchroniser de données irremplaçables.**
 
-## What's implemented
+## Fonctionnalités
 
-- Portable C++20 synchronization comparison engine with a clear backend API.
-- Two-way propagation of creations, changes and one-sided deletions.
-- Previous-snapshot conflict detection, byte comparisons on bilateral changes.
-- Conflict handling policies (Ask/Ignore/Stop/Newest/Oldest) at engine level.
-- Snapshot identity tied to the exact ordered pair of endpoints.
-- Local endpoint (Windows path / UNC) and Windows-only `wsl://` to UNC mapping.
-- Basic Win32 desktop app (two folders, Preview, Synchronize) and Explorer
-  classic context menu install script.
-- A Linux regression suite and a Windows MinGW cross-build.
+- Moteur C++20 commun à tous les protocoles, synchronisation bidirectionnelle, propagation des créations/suppressions, historique par paire d'emplacements et gestion des conflits.
+- Endpoints : local Windows et chemins UNC, WSL via `wsl://Ubuntu/home/user`, FTP et SFTP via libcurl.
+- FTP testé en intégration sur serveur isolé (MLSD, écriture, lecture, sous-dossiers, suppressions).
+- SFTP testé en intégration sur serveur SSH isolé (clé d'hôte contrôlée, écriture, lecture, sous-dossiers, suppressions).
+- Interface Win32 initiale avec prévisualisation et bouton Synchroniser ; entrée dans le menu contextuel classique de l'Explorateur.
 
-FTP and SFTP are **not functional yet**: requesting them fails explicitly.
+## Compilation et tests Linux
 
-## Build/test
+Nécessite CMake, C++20, libcurl-dev ; les tests réseau nécessitent Python 3, pyftpdlib et Paramiko.
 
-```sh
-cmake -S . -B build
-cmake --build build --parallel
-ctest --test-dir build --output-on-failure
+```bash
+cmake -S . -B build-remote -DSYNCHROREP_REMOTE=ON
+cmake --build build-remote --parallel
+ctest --test-dir build-remote --output-on-failure
+bash tests/integration/run.sh
 ```
 
-### CLI (Linux, for tests)
+Le script démarre deux serveurs loopback temporaires, sans utiliser de serveurs externes.
 
-```sh
-./build/synchrorep /tmp/left /tmp/right /tmp/synchrorep.state --dry-run
-./build/synchrorep /tmp/left /tmp/right /tmp/synchrorep.state
+## Compilation Windows avec FTP/SFTP
+
+Sous Windows, utiliser Visual Studio C++, CMake et [vcpkg](https://github.com/microsoft/vcpkg). Le manifeste vcpkg inclut curl avec libssh2, SSL et protocoles non HTTP.
+
+```powershell
+cmake -S . -B build-win-full -A x64 -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DSYNCHROREP_REMOTE=ON
+cmake --build build-win-full --config Release
 ```
 
-### Windows
+**À valider sous Windows réel** : cette recette MSVC/vcpkg n'a pas encore été exécutée sur un runner Windows. La pipeline MinGW produit volontairement un exécutable **local/WSL uniquement** avec `SYNCHROREP_REMOTE=OFF`.
 
-Build with Visual Studio / CMake, or use the MinGW GitLab build artifact.
-The app is linked as a Windows GUI executable.
+### Connexions distantes
 
-Register Explorer's classic per-user context menu:
+Les URL sont de la forme `ftp://host:21/path/` ou `sftp://host:22/path/`. Ne pas inclure d'identifiants dans l'URL.
+
+| Protocole | Variables d'environnement |
+| --- | --- |
+| FTP | `SYNCHROREP_FTP_USER`, `SYNCHROREP_FTP_PASSWORD` |
+| SFTP | `SYNCHROREP_SFTP_USER`, `SYNCHROREP_SFTP_PASSWORD`, `SYNCHROREP_SFTP_KNOWN_HOSTS` |
+| SFTP (optionnel) | `SYNCHROREP_SFTP_PRIVATE_KEY` |
+
+L'intégration du Gestionnaire d'identifiants Windows et les écrans de gestion de connexion restent à développer.
+
+Pour installer le menu classique Explorateur (Windows 11 : « Afficher d'autres options ») :
 
 ```powershell
 .\windows\install-context-menu.ps1 -ExePath "C:\path\to\synchrorep.exe"
 ```
 
-In Windows 11 the entry may appear under **Show more options**.
-`wsl://Ubuntu/home/user` resolves to a WSL UNC path on Windows with WSL
-installed.
+## Limites
 
-## Compatibility / limits
+L'historique texte `SYNCHROREP3` n'est pas encore compatible avec SQLite d'origine. FTP nécessite un listing MLSD exploitable. SFTP nécessite un listing POSIX accepté et un fichier known_hosts. Les suppressions et lots ne sont pas transactionnels. Les modifications de même taille effectuées dans la même seconde peuvent ne pas être détectées avant ajout d'un historique de hachage.
 
-See [the compatibility matrix](docs/compatibility.md) for the original
-behavior options, missing features, implementation safety guarantees, and
-remaining tasks. The original uses SQLite and offers richer UI and policies;
-this prototype still uses a separate `SYNCHROREP2` text history format.
+Le portage fidèle des écrans GTK, des règles MD5, des questions par fichier, des groupes, des journaux et de la Corbeille reste à terminer. Voir [compatibilité](docs/compatibility.md).
 
-The engine stages writes before replacing target files but a batch of writes
-and deletions is not transactional yet. In particular, the original trash,
-confirmation dialogs per conflict, MD5 options and logs are not ported.
+## Licence
 
-## License
-
-The original is GPL-3.0. Retain original license and author attribution when
-moving original code. This project continues under GPL-3.0.
+GPL-3.0 ; licence originale conservée dans [LICENSE](LICENSE). Les dépendances conservent leurs propres licences.

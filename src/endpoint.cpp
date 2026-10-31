@@ -1,4 +1,5 @@
 #include "synchrorep/endpoint.hpp"
+#include "synchrorep/remote_endpoint.hpp"
 #include <algorithm>
 #include <chrono>
 #include <fstream>
@@ -23,7 +24,7 @@ bool valid_relative(const std::string& relative) {
  return true;
 }
 std::int64_t timestamp(const fs::path& p) {
- return static_cast<std::int64_t>(fs::last_write_time(p).time_since_epoch().count());
+ return std::chrono::duration_cast<std::chrono::seconds>(fs::file_time_type::clock::to_sys(fs::last_write_time(p)).time_since_epoch()).count();
 }
 Entry stat(const fs::path& path) {
  std::error_code ec;
@@ -92,7 +93,7 @@ void LocalEndpoint::write(const std::string& relative,std::istream& input,const 
   if(fs::file_size(tmp)!=source.size)throw std::runtime_error("Transfer size mismatch: "+relative);
   atomic_replace(tmp,target);
   // Preserve native mtime for local-local and WSL UNC transfers.
-  fs::last_write_time(target,fs::file_time_type(fs::file_time_type::duration(source.modified)));
+  fs::last_write_time(target,fs::file_time_type::clock::from_sys(std::chrono::system_clock::time_point{std::chrono::seconds(source.modified)}));
  } catch(...) {std::error_code ignored;fs::remove(tmp,ignored);throw;}
 }
 void LocalEndpoint::make_directory(const std::string& relative){fs::create_directories(within(relative));}
@@ -132,8 +133,16 @@ std::unique_ptr<Endpoint> open_endpoint(const std::string& location) {
  switch(endpoint_kind(location)) {
  case EndpointKind::Local: return std::make_unique<LocalEndpoint>(fs::path(std::u8string(reinterpret_cast<const char8_t*>(location.data()),location.size())));
  case EndpointKind::Wsl: return std::make_unique<LocalEndpoint>(wsl_unc_path(location));
- case EndpointKind::Ftp: case EndpointKind::Sftp:
-  throw std::runtime_error("FTP/SFTP transport not yet implemented; no synchronization performed");
+ case EndpointKind::Ftp: case EndpointKind::Sftp:{
+  auto env=[](const char* key){const char* v=std::getenv(key);return v?std::string(v):std::string{};};
+  const char* prefix=endpoint_kind(location)==EndpointKind::Ftp?"SYNCHROREP_FTP_":"SYNCHROREP_SFTP_";
+  RemoteCredentials credentials;
+  credentials.username=env((std::string(prefix)+"USER").c_str());
+  credentials.password=env((std::string(prefix)+"PASSWORD").c_str());
+  credentials.known_hosts=env("SYNCHROREP_SFTP_KNOWN_HOSTS");
+  credentials.private_key=env("SYNCHROREP_SFTP_PRIVATE_KEY");
+  return std::make_unique<RemoteEndpoint>(location,std::move(credentials));
+ }
  }
  throw std::runtime_error("Unknown endpoint");
 }

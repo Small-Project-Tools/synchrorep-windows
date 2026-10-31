@@ -1,0 +1,7 @@
+{
+  "name": "synchrorep-windows",
+  "version-string": "0.3.0",
+  "dependencies": [
+    { "name": "curl", "features": ["non-http", "ssl", "ssh"] }
+  ]
+}

@@ -45,7 +45,7 @@ State load(const fs::path& file,const Endpoint& left,const Endpoint& right) {
  if(!in)throw std::runtime_error("Cannot read synchronization history");
  std::string header;
  std::getline(in,header);
- if(header!="SYNCHROREP2")throw std::runtime_error("Unsupported history format (migration required)");
+ if(header!="SYNCHROREP3")throw std::runtime_error("Unsupported history format (migration required)");
  std::string a,b;in>>std::quoted(a)>>std::quoted(b);
  if(!in || a!=result.left || b!=result.right)
   throw std::runtime_error("Synchronization history belongs to a different pair of locations");
@@ -73,7 +73,7 @@ void save(const fs::path& file,const State& state) {
  {
   std::ofstream out(tmp,std::ios::binary|std::ios::trunc);
   if(!out)throw std::runtime_error("Cannot create synchronization history");
-  out<<"SYNCHROREP2\n"<<std::quoted(state.left)<<' '<<std::quoted(state.right)<<'\n';
+  out<<"SYNCHROREP3\n"<<std::quoted(state.left)<<' '<<std::quoted(state.right)<<'\n';
   for(const auto& [name,p]:state.history)
    out<<std::quoted(name)<<' '<<p.left.exists<<' '<<p.left.directory<<' '
       <<p.left.size<<' '<<p.left.modified<<' '
