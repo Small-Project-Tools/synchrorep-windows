@@ -20,6 +20,7 @@ int main(){
  auto path=fs::temp_directory_path()/"synchrorep-test-remote";
  fs::remove_all(path);fs::create_directories(path/"local");
  try{
+  std::cerr<<"Remote integration endpoint="<<url<<"\n";
   RemoteEndpoint remote(url,credentials);
   LocalEndpoint local(path/"local");
   Engine engine(path/"history.txt");
@@ -133,5 +134,8 @@ int main(){
   assert(remote.scan().empty());
   fs::remove_all(path);
   std::cout<<"Remote integration tests passed for "<<remote.identity()<<"\n";
- }catch(...){fs::remove_all(path);throw;}
+ }catch(const std::exception& error){
+  std::cerr<<"Remote integration test failed ("<<url<<"): "<<error.what()<<"\n";
+  fs::remove_all(path);return 1;
+ }
 }

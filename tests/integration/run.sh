@@ -34,7 +34,13 @@ fi
 export SYNCHROREP_REMOTE_USER="tester"
 export SYNCHROREP_REMOTE_PASSWORD="secret"
 export SYNCHROREP_SFTP_KNOWN_HOSTS="$SYNCHROREP_TEST_KNOWN_HOSTS"
+if [[ "${SYNCHROREP_TEST_WINDOWS:-0}" == 1 ]]; then
+  export SYNCHROREP_SFTP_KNOWN_HOSTS="$(winepath -w "$SYNCHROREP_TEST_KNOWN_HOSTS")"
+  runner=(wine "./${SYNCHROREP_WINDOWS_TEST_DIR:-build-win}/remote_tests.exe")
+else
+  runner=(./build-remote/remote_tests)
+fi
 export SYNCHROREP_TEST_REMOTE_URL="ftp://127.0.0.1:2121/"
-./build-remote/remote_tests
+"${runner[@]}"
 export SYNCHROREP_TEST_REMOTE_URL="sftp://127.0.0.1:2222/"
-./build-remote/remote_tests
+"${runner[@]}"

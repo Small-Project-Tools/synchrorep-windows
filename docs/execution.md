@@ -26,8 +26,9 @@ the choice buttons, except choosing Skip. Users must resolve incompatible
 file/directory types manually.
 
 The Windows UI remains a prototype and has not undergone runtime testing on a
-Windows desktop. The Win32 cross-build has been verified with MinGW; SSH/SFTP
-on Windows with MSVC/vcpkg and WSL runtime tests remain outstanding.
+Windows desktop. The Win32 cross-build has been verified with MinGW; FTP/SFTP on Windows is now part of the automated MinGW build; a
+Wine test uses disposable FTP/SFTP servers. Tests on a native Windows 11
+machine and WSL host integration remain outstanding.
 
 Security and reliability limitations:
 - Deletions are permanent; a broad confirmation appears before running.

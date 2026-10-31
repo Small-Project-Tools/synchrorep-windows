@@ -82,35 +82,17 @@ test HKCU** ; les entrées des autres applications sont préservées et aucune
 inscription au véritable démarrage n’est modifiée par ce test.
 
 
-## Validation du paquet Lite 0.12.1
+## Distribution Windows unifiée (0.13.0)
 
-Une installation MSI x64 generee par \`wixl\` et le lancement
-\`synchrorep.exe --auto-mirror AutoSmokeCI\` ont ete executes sous Wine
-avec un profil V5 dans un prefixe jetable. Le scenario a couvert :
+Le même installateur Synchrorep prend en charge les cibles locales,
+WSL, FTP et SFTP pour le démarrage automatique. En cas de cible distante,
+l'utilisateur doit enregistrer préalablement les identifiants via
+Windows Credential Manager, et le fichier \`known_hosts\` pour SFTP.
 
-- copie et suppression initiales vers la cible ;
-- archivage SHA-256 avant suppression ;
-- creation d'un nouveau fichier, propagation des suppressions ;
-- correction d'une modification faite directement sur la cible ;
-- presence d'un journal de synchronisation et absence de journal
-  d'interruption lors de la fin d'un cycle.
-
-Le test \`tests/wine_autostart_smoke.sh\` sert de verification reproductible.
-Il suppose un prefixe Wine de test isole, **ne doit jamais etre execute
-avec les profils d'un utilisateur reel**, et coupe la Corbeille native car
-Wine ne fournit pas l'integration Windows Shell correspondante.
-
-Le test de la Corbeille native et de la connexion a Windows 11 exige
-toujours une session Windows reelle. L'edition Lite ne contient pas
-les transports FTP/SFTP.
-
-
-Le test final de packaging a également vérifié le désinstallateur MSI :
-le fichier exécutable installé a été retiré correctement dans un nouveau
-préfixe Wine. L'utilisateur doit décocher le lancement automatique
-avant une désinstallation sur Windows pour éviter de conserver des valeurs
-HKCU Run pointant vers un exécutable supprimé ; le MSI ne supprime pas
-arbitrairement les profils ni les valeurs dynamiques de chaque utilisateur.
+Les tests Wine de l'application installée vérifient le démarrage
+automatique, les copies, les suppressions et la récupération.
+Les tests Win32 distants, lorsqu'ils sont exécutés, utilisent les mêmes
+DLL curl/SSH que le MSI.
 
 
 ## Protection contre plusieurs miroirs vers une meme cible (0.12.2)

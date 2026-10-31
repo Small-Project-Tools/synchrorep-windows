@@ -1,119 +1,61 @@
-# Intégration native au menu Windows 11 — Synchrorep 0.10
+# Intégration de Synchrorep à l’Explorateur Windows
 
-## Deux niveaux de menu
+## Menu classique
 
-**Menu classique (Windows 10 et « Afficher d'autres options » sous Windows 11)**
+Synchrorep peut enregistrer, pour l’utilisateur courant, sa commande
+dans le menu classique de l’Explorateur via HKCU. L'icône est chargée
+depuis `synchrorep.exe`.
 
-Il est activé/désactivé par la case **Explorer context menu** dans
-l'application, via les clés de registre HKCU de l'utilisateur courant.
-Il reste disponible sans identité de package MSIX.
+## Menu moderne Windows 11
 
-**Menu moderne de Windows 11**
+Le projet fournit `SynchrorepExplorer.dll` avec `IExplorerCommand`,
+un identifiant COM fixe et un manifeste MSIX *sparse*. L'extension
+ouvre l'application pour le dossier sélectionné et ne lance pas de
+transfert dans le processus Explorer.
 
-Le projet dispose d'une DLL COM `SynchrorepExplorer.dll` implémentant
-`IExplorerCommand`. Elle s'enregistre avec
-`windows.fileExplorerContextMenus` et `windows.comServer` via le manifeste
-`windows/sparse/AppxManifest.xml`.
+L'enregistrement dans le nouveau menu Windows 11 nécessite un package
+MSIX sparse signé et associé à l’installation de l’application.
+L'installation MSI seule ne suffit pas.
 
-Ce menu moderne exige une **identité d'application** et un package MSIX
-*sparse* **signé et installé**. La compilation de la DLL ou l'installation
-du MSI classique ne suffit pas à afficher cette commande dans le menu
-principal Windows 11.
+### Compiler une seule application
 
-Référence Microsoft :
-https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/integrate-packaged-app-with-file-explorer
+Le job `windows-mingw` construit l'unique application contenant local,
+WSL, FTP et SFTP. Les fichiers `synchrorep.exe` et
+`SynchrorepExplorer.dll` figurent ensemble dans le MSI et dans les
+artefacts Windows.
 
-## Architecture
-
-La DLL reste volontairement petite. Elle fournit le texte de la commande,
-la limite aux dossiers sélectionnés et lance
-`synchrorep.exe "<répertoire>"`. Elle n'analyse pas les fichiers ni le
-réseau dans le processus Explorateur. Les opérations longues restent dans
-l'application principale.
-
-Le CLSID est défini dans `windows/explorer_clsid.hpp` et doit correspondre
-exactement à celui du manifeste. Le test statique
-`tests/sparse_manifest_test.py` vérifie cette identité.
-
-## Compilation
-
-Le job GitLab Linux/MinGW compile une version **locale/WSL seulement** :
-
-```text
-build-win/synchrorep.exe
-build-win/SynchrorepExplorer.dll
-```
-
-La DLL et l'exécutable doivent se trouver **dans le même dossier**.
-Pour FTP/SFTP, compiler avec MSVC + vcpkg (`SYNCHROREP_REMOTE=ON`) :
+Le script `windows/sparse/package.ps1` utilise ce même build :
 
 ```powershell
-cmake -S . -B build-msvc -A x64 `
-  -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
-  -DVCPKG_TARGET_TRIPLET=x64-windows-static -DSYNCHROREP_REMOTE=ON
-cmake --build build-msvc --config Release
-ctest --test-dir build-msvc -C Release --output-on-failure
+.\windows\sparse\package.ps1 -ApplicationDirectory .\build-win `
+  -Output Synchrorep.Windows.0.13.0.sparse-unsigned.msix
 ```
 
-## Création du package sparse
+La création exige Windows SDK `MakeAppx.exe`.
+**Le résultat est non signé et ne doit pas être déployé tel quel.**
 
-Sur Windows, avec le **Windows SDK** et `MakeAppx.exe` accessibles :
+La valeur `Publisher` de `windows/sparse/AppxManifest.xml` doit
+correspondre exactement au certificat utilisé pour signer le MSIX.
+Les clés privées ne doivent jamais être stockées dans GitLab.
 
-```powershell
-.\windows\sparse\package.ps1 -ApplicationDirectory .\build-msvc\Release `
-  -Output Synchrorep.Windows.0.10.0.sparse-unsigned.msix
-```
-
-Le script ne signe **pas** le package. Le champ `Publisher` de
-`windows/sparse/AppxManifest.xml` doit être remplacé par le sujet exact
-du certificat utilisé pour signer la version distribuée.
-
-Signer avec `SignTool.exe`, et un certificat de signature de code approuvé
-sur la machine cible. Ne pas stocker de clé privée dans GitLab.
-Exemple de validation d'un package préalablement signé :
+Une fois le MSIX signé avec un certificat approuvé :
 
 ```powershell
-Get-AuthenticodeSignature .\Synchrorep.Windows.0.10.0.sparse.msix
-```
-
-Après installation du MSI **et** installation du package sparse signé,
-enregistrer le package en indiquant le chemin réel où se trouvent
-`synchrorep.exe` et `SynchrorepExplorer.dll` :
-
-```powershell
-Add-AppxPackage -Path .\Synchrorep.Windows.0.10.0.sparse.msix `
+Add-AppxPackage -Path .\Synchrorep.Windows.0.13.0.sparse.msix `
   -ExternalLocation 'C:\Program Files\Synchrorep'
 ```
 
-Ne pas essayer d'enregistrer le package non signé en production.
-Tester les règles de confiance du certificat, les chemins d'installation,
-la visibilité du menu et la désinstallation sur une machine Windows 11
-avant publication.
+Le dossier externe doit correspondre au chemin réel de l'installation MSI.
 
-## Validation disponible et limites
+## Icône
 
-- DLL COM compilée avec MinGW POSIX (x64).
-- `DllGetClassObject` et `DllCanUnloadNow` exportés.
-- Tests C++ de citation des arguments Windows, y compris les chemins
-  avec espaces et antislash final.
-- Test de contrat COM natif préparé : `explorer_command_tests.exe`.
-- Manifestes WiX et MSIX contrôlés statiquement.
-- **Non validés sur un véritable poste Windows :** chargement effectif de
-  l'extension par Explorer, installation/signature du sparse MSIX,
-  fonctionnement FTP/SFTP natif, création effective et installation du MSI.
+L’icône originale de Synchrorep est embarquée comme ressource Win32
+`ICON 101`. Le menu moderne expose son index 0 via
+`IExplorerCommand::GetIcon`, et le menu classique utilise la même
+ressource. Les logos du MSIX dérivent de la même image.
 
-Le job manuel `windows-msvc-full` produit le MSI avec les deux binaires.
-Le job `windows-sparse-unsigned` prépare un package MSIX non signé à
-signer et tester séparément. Ces jobs nécessitent un runner Windows.
+## Vérifications et limites
 
-
-## Identite visuelle de l'extension (0.12.3)
-
-La commande moderne IExplorerCommand::GetIcon renvoie le chemin de
-l'executable et l'index d'icone 0. Le menu classique utilise la valeur
-Icon enregistre dans HKCU. Le MSI associe la meme icone au raccourci du
-menu Demarrer et a l'entree Applications installees.
-
-Le paquet MSIX sparse utilise egalement les logos PNG generes depuis
-le meme visuel. Les essais natifs sous Windows 11 restent necessaires
-pour valider le rendu de ces integrations.
+La compilation MinGW et les tests sous Wine valident le contrat COM et
+la présence de l'icône. Le chargement réel par Windows Explorer 11 et
+la signature du MSIX restent à tester sur un poste Windows natif.

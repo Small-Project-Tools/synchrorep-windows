@@ -1,26 +1,34 @@
 #!/usr/bin/env python3
-"""Validate the MSI manifest's structure and version during Linux CI."""
+"""Validate the single, complete WiX3 MSI template (Linux CI)."""
 import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-root = Path(__file__).resolve().parents[1]
-doc = ET.parse(root / "windows/installer/Synchrorep.wxs").getroot()
-ns = {"w": "http://wixtoolset.org/schemas/v4/wxs"}
-package = doc.find("w:Package", ns)
-assert package is not None
-cmake = (root / "CMakeLists.txt").read_text()
-match = re.search(r"project\(synchrorep_windows VERSION (\d+\.\d+\.\d+)", cmake)
-assert match and match.group(1) == package.attrib["Version"]
-assert package.attrib["Scope"] == "perMachine"
-assert re.fullmatch(r"[0-9A-Fa-f-]{36}", package.attrib["UpgradeCode"])
-files = package.findall(".//w:File", ns)
-assert {item.attrib["Id"] for item in files} == {"MainExecutable", "ExplorerExtension", "LicenseDocument"}
-assert {item.attrib["Source"] for item in files} == {"$(var.SourceExe)", "$(var.SourceExplorerDll)", "$(var.SourceLicense)"}
-assert len(package.findall(".//w:Component", ns)) == len(files)
-assert len(package.findall(".//w:ComponentRef", ns)) == len(files)
-icon=package.find("w:Icon",ns)
-assert icon is not None and icon.attrib["SourceFile"]=="$(var.SourceIcon)"
-arp=package.find("w:Property[@Id='ARPPRODUCTICON']",ns)
-assert arp is not None and arp.attrib["Value"]=="SynchrorepIcon"
-print("WiX MSI metadata validated")
+root=Path(__file__).resolve().parents[1]
+source=root/"windows/installer/Synchrorep.wxs"
+text=source.read_text()
+package=ET.fromstring(text)
+ns={"w":"http://schemas.microsoft.com/wix/2006/wi"}
+product=package.find("w:Product",ns)
+cmake=(root/"CMakeLists.txt").read_text()
+version=re.search(r"project\(synchrorep_windows VERSION (\d+\.\d+\.\d+)",cmake).group(1)
+assert product is not None and product.attrib["Version"]==version
+assert product.attrib["Name"]=="Synchrorep"
+assert product.attrib["UpgradeCode"]=="E7933186-3749-4B61-AD35-68A48EB337CD"
+assert product.find("w:Package",ns).attrib["InstallScope"]=="perMachine"
+assert product.find("w:Property[@Id='ARPPRODUCTICON']",ns).attrib["Value"]=="SynchrorepIcon"
+assert product.find("w:Icon",ns).attrib["SourceFile"]=="$(var.SourceIcon)"
+files={f.attrib["Id"]:f.attrib["Source"] for f in product.findall(".//w:File",ns)}
+assert files=={
+    "AppFile":"$(var.SourceExe)",
+    "ExtensionFile":"$(var.SourceExplorerDll)",
+    "LicenseFile":"$(var.SourceLicense)",
+    "ThirdPartyNoticesFile":"$(var.SourceNotices)",
+}
+shortcuts=product.findall(".//w:Shortcut",ns)
+assert len(shortcuts)==1 and shortcuts[0].attrib["Name"]=="Synchrorep"
+assert len(product.findall(".//w:RegistryValue",ns))==0
+assert "<!-- RUNTIME_COMPONENTS -->" in text and "<!-- RUNTIME_REFS -->" in text
+assert len(product.findall(".//w:Component",ns))==len(files)
+assert len(product.findall(".//w:ComponentRef",ns))==len(files)
+print("Single Windows MSI manifest validated")

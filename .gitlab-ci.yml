@@ -1,4 +1,5 @@
 stages: [test, build, verify]
+
 linux-tests:
  stage: test
  image: gcc:14
@@ -13,28 +14,39 @@ linux-tests:
   - python3 tests/sparse_manifest_test.py
   - python3 tests/icon_assets_test.py
   - bash tests/integration/run.sh
+
+# The only Windows distribution: local/WSL/FTP/SFTP in one executable/MSI.
 windows-mingw:
  stage: build
  image: debian:bookworm
  before_script:
-  - apt-get update -qq && apt-get install -y -qq cmake g++-mingw-w64-x86-64-posix wixl python3
+  - apt-get update -qq
+  - apt-get install -y -qq cmake g++-mingw-w64-x86-64-posix wixl python3 zstd
  script:
-  # This cross-built artifact supports local and WSL UNC paths only.
-  # To include FTP/SFTP build with MSVC and vcpkg curl[ssh].
-  - cmake -S . -B build-win -DSYNCHROREP_REMOTE=OFF -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++-posix
-  - cmake --build build-win --target synchrorep engine_tests sha256_tests profiles_tests recovery_tests recovery_catalog_tests recycle_bin_tests mirror_tests startup_tests startup_registry_tests windows_args_tests synchrorep_explorer_command explorer_command_tests icon_resource_tests --parallel
+  - python3 scripts/fetch_windows_curl.py --output build-msys2/win64 --cache build-msys2/cache
+  - cmake -S . -B build-win -DSYNCHROREP_REMOTE=ON -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++-posix -DCURL_INCLUDE_DIR="$CI_PROJECT_DIR/build-msys2/win64/include" -DCURL_LIBRARY="$CI_PROJECT_DIR/build-msys2/win64/lib/libcurl.dll.a"
+  - cmake --build build-win --target synchrorep engine_tests remote_tests windows_transport_tests sha256_tests profiles_tests recovery_tests recovery_catalog_tests recycle_bin_tests mirror_tests startup_tests startup_registry_tests windows_args_tests synchrorep_explorer_command explorer_command_tests icon_resource_tests --parallel 2
+  - python3 scripts/stage_windows_runtime.py --prefix build-msys2/win64 --build build-win
+  - python3 scripts/render_windows_installer.py --build build-win --version 0.13.0
+  - python3 tests/windows_installer_test.py --build build-win
   - x86_64-w64-mingw32-objdump -p build-win/synchrorep.exe | grep 'DLL Name'
+  - x86_64-w64-mingw32-objdump -p build-win/synchrorep.exe | grep 'libcurl-4.dll'
   - x86_64-w64-mingw32-objdump -p build-win/SynchrorepExplorer.dll | grep 'DllGetClassObject'
-  - x86_64-w64-mingw32-objdump -p build-win/SynchrorepExplorer.dll | grep 'DllCanUnloadNow' 
-  - wixl -a x64 -D SourceExe=build-win/synchrorep.exe -D SourceExplorerDll=build-win/SynchrorepExplorer.dll -D SourceLicense=LICENSE -D SourceIcon=assets/synchrorep.ico -o build-win/synchrorep-windows-0.12.3-lite-x64.msi windows/installer/Synchrorep-Lite.wxs
-  - python3 tests/lite_installer_test.py
+  - x86_64-w64-mingw32-objdump -p build-win/SynchrorepExplorer.dll | grep 'DllCanUnloadNow'
+  - wixl -a x64 -D SourceExe=build-win/synchrorep.exe -D SourceExplorerDll=build-win/SynchrorepExplorer.dll -D SourceLicense=LICENSE -D SourceNotices=build-win/THIRD_PARTY_NOTICES.txt -D SourceIcon=assets/synchrorep.ico -D RuntimeDir=build-win -o build-win/synchrorep-windows-0.13.0-x64.msi build-win/Synchrorep.wxs
+  - python3 tests/installer_manifest_test.py
   - python3 tests/icon_assets_test.py
  artifacts:
-  paths: [build-win/synchrorep.exe, build-win/SynchrorepExplorer.dll, build-win/startup_registry_tests.exe, build-win/recovery_tests.exe, build-win/icon_resource_tests.exe, build-win/explorer_command_tests.exe, build-win/synchrorep-windows-0.12.3-lite-x64.msi]
+  paths:
+   - build-win/*.exe
+   - build-win/*.dll
+   - build-win/windows-dlls.txt
+   - build-win/THIRD_PARTY_NOTICES.txt
+   - build-msys2/win64/dependencies.lock
+   - build-win/synchrorep-windows-0.13.0-x64.msi
 
-# Optional: requires an authorized Windows runner with VS C++ and vcpkg.
-# It does not block the standard pipeline when no such runner exists.
-windows-msvc-full:
+# Optional MSVC cross-check: same features, no separate "full" product/MSI.
+windows-msvc-validation:
  stage: build
  tags: [windows]
  when: manual
@@ -43,27 +55,24 @@ windows-msvc-full:
   - cmake -S . -B build-msvc -A x64 -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static -DSYNCHROREP_REMOTE=ON
   - cmake --build build-msvc --config Release --parallel
   - ctest --test-dir build-msvc -C Release --output-on-failure
-  - if (-not (Get-Command wix -ErrorAction SilentlyContinue)) { dotnet tool install --global wix --version '5.*' }
-  - $env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
-  - wix build -arch x64 "-dSourceExe=build-msvc/Release/synchrorep.exe" "-dSourceExplorerDll=build-msvc/Release/SynchrorepExplorer.dll" "-dSourceLicense=LICENSE" "-dSourceIcon=assets/synchrorep.ico" windows/installer/Synchrorep.wxs -o synchrorep-windows-0.12.3-x64.msi
- artifacts:
-  paths: [build-msvc/Release/synchrorep.exe, build-msvc/Release/SynchrorepExplorer.dll, synchrorep-windows-0.12.3-x64.msi]
 
+# Requires a Windows SDK and a signing certificate before actual deployment.
+# Reuses the exact same compiled application from the sole distribution job.
 windows-sparse-unsigned:
  stage: build
  tags: [windows]
+ needs:
+  - job: windows-mingw
+    artifacts: true
  when: manual
  allow_failure: true
  script:
-  - cmake -S . -B build-msvc -A x64 -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static -DSYNCHROREP_REMOTE=ON
-  - cmake --build build-msvc --config Release --parallel
-  - ./windows/sparse/package.ps1 -ApplicationDirectory "build-msvc/Release" -Output "Synchrorep.Windows.0.12.3.sparse-unsigned.msix"
+  - ./windows/sparse/package.ps1 -ApplicationDirectory "build-win" -Output "Synchrorep.Windows.0.13.0.sparse-unsigned.msix"
  artifacts:
-  paths: [Synchrorep.Windows.0.12.3.sparse-unsigned.msix]
+  paths: [Synchrorep.Windows.0.13.0.sparse-unsigned.msix]
 
-
-# Optional Wine integration validates the actual Windows executable and its
-# HKCU startup keys, but never touches a real Windows user's registry.
+# Windows integration tests on the same cross-compiled executable and MSI.
+# Wine limitations should not block the mandatory cross-compilation job.
 windows-wine-smoke:
  stage: verify
  image: debian:bookworm
@@ -73,19 +82,22 @@ windows-wine-smoke:
  allow_failure: true
  before_script:
   - apt-get update -qq
-  - apt-get install -y -qq wine wine64 xvfb
+  - apt-get install -y -qq wine wine64 xvfb python3 python3-pyftpdlib python3-paramiko
  script:
   - export WINEPREFIX="$CI_PROJECT_DIR/wine-ci"
   - export WINEDEBUG=-all
   - xvfb-run -a wineboot -u
+  - xvfb-run -a wine build-win/windows_transport_tests.exe
   - xvfb-run -a wine build-win/startup_registry_tests.exe
   - xvfb-run -a wine build-win/recovery_tests.exe
   - xvfb-run -a wine build-win/icon_resource_tests.exe
   - xvfb-run -a wine build-win/explorer_command_tests.exe
-  - xvfb-run -a wine msiexec /i build-win/synchrorep-windows-0.12.3-lite-x64.msi /qn
+  - export SYNCHROREP_TEST_WINDOWS=1
+  - xvfb-run -a bash tests/integration/run.sh
+  - xvfb-run -a wine msiexec /i build-win/synchrorep-windows-0.13.0-x64.msi /qn
   - export SYNCHROREP_EXE="$WINEPREFIX/drive_c/Program Files/Synchrorep/synchrorep.exe"
   - test -f "$SYNCHROREP_EXE"
   - cmp build-win/synchrorep.exe "$SYNCHROREP_EXE"
   - xvfb-run -a bash tests/wine_autostart_smoke.sh
-  - xvfb-run -a wine msiexec /x build-win/synchrorep-windows-0.12.3-lite-x64.msi /qn
+  - xvfb-run -a wine msiexec /x build-win/synchrorep-windows-0.13.0-x64.msi /qn
   - test ! -e "$SYNCHROREP_EXE"

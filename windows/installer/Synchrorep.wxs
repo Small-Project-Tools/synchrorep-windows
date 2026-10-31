@@ -1,32 +1,45 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- WiX Toolset v5. Build on Windows with wix.exe and the full MSVC binary. -->
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package Name="Synchrorep" Manufacturer="Synchrorep contributors"
-           Version="0.12.3" Language="1033"
-           UpgradeCode="E7933186-3749-4B61-AD35-68A48EB337CD"
-           Scope="perMachine">
-    <MajorUpgrade DowngradeErrorMessage="A newer Synchrorep version is already installed." />
-    <MediaTemplate EmbedCab="yes" />
-    <Icon Id="SynchrorepIcon" SourceFile="$(var.SourceIcon)" />
-    <Property Id="ARPPRODUCTICON" Value="SynchrorepIcon" />
-    <StandardDirectory Id="ProgramFiles64Folder">
-      <Directory Id="INSTALLFOLDER" Name="Synchrorep">
-        <Component Id="SynchrorepBinary" Guid="*">
-          <File Id="MainExecutable" Source="$(var.SourceExe)" KeyPath="yes" />
-        </Component>
-        <Component Id="SynchrorepExplorerBinary" Guid="*">
-          <File Id="ExplorerExtension" Source="$(var.SourceExplorerDll)"
-                Name="SynchrorepExplorer.dll" KeyPath="yes" />
-        </Component>
-        <Component Id="SynchrorepLicense" Guid="*">
-          <File Id="LicenseDocument" Source="$(var.SourceLicense)" Name="LICENSE" KeyPath="yes" />
-        </Component>
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Single full-featured Synchrorep installer. Generated runtime components
+     are injected from the checksum-verified Windows curl dependency set. -->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Synchrorep" Manufacturer="Synchrorep contributors"
+           Version="0.13.0" Language="1033"
+           UpgradeCode="E7933186-3749-4B61-AD35-68A48EB337CD">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"/>
+    <MajorUpgrade DowngradeErrorMessage="A newer Synchrorep version is already installed."/>
+    <MediaTemplate EmbedCab="yes"/>
+    <Icon Id="SynchrorepIcon" SourceFile="$(var.SourceIcon)"/>
+    <Property Id="ARPPRODUCTICON" Value="SynchrorepIcon"/>
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="Synchrorep">
+          <Component Id="AppComponent" Guid="247755EB-32CB-5BC9-977A-C42D4D1E79C6" Win64="yes">
+            <File Id="AppFile" Source="$(var.SourceExe)" Name="synchrorep.exe" KeyPath="yes">
+              <Shortcut Id="StartMenuSynchrorep" Directory="ProgramMenuFolder"
+                        Name="Synchrorep" WorkingDirectory="INSTALLFOLDER"
+                        Advertise="yes" Icon="SynchrorepIcon" IconIndex="0"/>
+            </File>
+          </Component>
+          <Component Id="ExtensionComponent" Guid="4D909B2C-B0A0-5292-BD39-389539EC7739" Win64="yes">
+            <File Id="ExtensionFile" Source="$(var.SourceExplorerDll)" Name="SynchrorepExplorer.dll" KeyPath="yes"/>
+          </Component>
+          <Component Id="LicenseComponent" Guid="883B7273-BB3E-55BC-B2A8-49D13CDA07B4" Win64="yes">
+            <File Id="LicenseFile" Source="$(var.SourceLicense)" Name="LICENSE" KeyPath="yes"/>
+          </Component>
+          <Component Id="ThirdPartyNotices" Guid="*">
+            <File Id="ThirdPartyNoticesFile" Source="$(var.SourceNotices)"
+                  Name="THIRD_PARTY_NOTICES.txt" KeyPath="yes"/>
+          </Component>
+          <!-- RUNTIME_COMPONENTS -->
+        </Directory>
       </Directory>
-    </StandardDirectory>
+    </Directory>
     <Feature Id="MainFeature" Title="Synchrorep" Level="1">
-      <ComponentRef Id="SynchrorepBinary" />
-      <ComponentRef Id="SynchrorepExplorerBinary" />
-      <ComponentRef Id="SynchrorepLicense" />
+      <ComponentRef Id="AppComponent"/>
+      <ComponentRef Id="ExtensionComponent"/>
+      <ComponentRef Id="LicenseComponent"/>
+      <ComponentRef Id="ThirdPartyNotices"/>
+      <!-- RUNTIME_REFS -->
     </Feature>
-  </Package>
+  </Product>
 </Wix>

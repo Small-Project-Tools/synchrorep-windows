@@ -1,37 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- WiX 3 dialect for cross-compiled local/WSL-only MSI via wixl on Linux. -->
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-  <Product Id="C0349D4D-39A3-5572-AB9C-5BC2230F2E4F" Name="Synchrorep Lite" Manufacturer="Synchrorep contributors"
-           Version="0.12.3" Language="1033"
-           UpgradeCode="E7933186-3749-4B61-AD35-68A48EB337CD">
-    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"/>
-    <MajorUpgrade DowngradeErrorMessage="A newer Synchrorep version is already installed."/>
-    <MediaTemplate EmbedCab="yes"/>
-    <Icon Id="SynchrorepIcon" SourceFile="$(var.SourceIcon)"/>
-    <Property Id="ARPPRODUCTICON" Value="SynchrorepIcon"/>
-    <Directory Id="TARGETDIR" Name="SourceDir">
-      <Directory Id="ProgramFiles64Folder">
-        <Directory Id="INSTALLFOLDER" Name="Synchrorep">
-          <Component Id="AppComponent" Guid="247755EB-32CB-5BC9-977A-C42D4D1E79C6" Win64="yes">
-            <File Id="AppFile" Source="$(var.SourceExe)" Name="synchrorep.exe" KeyPath="yes">
-              <Shortcut Id="StartMenuSynchrorep" Directory="ProgramMenuFolder"
-                        Name="Synchrorep Lite" WorkingDirectory="INSTALLFOLDER"
-                        Advertise="yes" Icon="SynchrorepIcon" IconIndex="0"/>
-            </File>
-          </Component>
-          <Component Id="ExtensionComponent" Guid="4D909B2C-B0A0-5292-BD39-389539EC7739" Win64="yes">
-            <File Id="ExtensionFile" Source="$(var.SourceExplorerDll)" Name="SynchrorepExplorer.dll" KeyPath="yes"/>
-          </Component>
-          <Component Id="LicenseComponent" Guid="883B7273-BB3E-55BC-B2A8-49D13CDA07B4" Win64="yes">
-            <File Id="LicenseFile" Source="$(var.SourceLicense)" Name="LICENSE" KeyPath="yes"/>
-          </Component>
-        </Directory>
-      </Directory>
-    </Directory>
-    <Feature Id="MainFeature" Title="Synchrorep Lite" Level="1">
-      <ComponentRef Id="AppComponent"/>
-      <ComponentRef Id="ExtensionComponent"/>
-      <ComponentRef Id="LicenseComponent"/>
-    </Feature>
-  </Product>
+  <!-- DEPRECATED: the Lite edition was permanently retired in version 0.13.0.
+       This file is intentionally NOT an installable product.
+       Use windows/installer/Synchrorep.wxs to build the sole full MSI. -->
 </Wix>
