@@ -7,8 +7,10 @@ ancienne version avant de remplacer ou de supprimer un fichier. Ce mécanisme
 fonctionne sur les endpoints locaux, WSL, FTP et SFTP : l'ancienne version
 distante est téléchargée dans l'archive locale avant toute mutation.
 
-Cette fonctionnalité est une **quarantaine applicative**, et non la Corbeille
-native de Windows. La restauration est actuellement manuelle. Le moteur n'offre
+Cette fonctionnalité est une **quarantaine applicative** distincte de la
+Corbeille native Windows. Depuis la version 0.9, la Corbeille native peut
+également recevoir les suppressions sur les disques fixes Windows locaux,
+selon la politique du profil. La restauration est actuellement manuelle. Le moteur n'offre
 pas encore une transaction atomique globale ni un bouton « Restaurer ».
 
 ## Où trouver les sauvegardes ?

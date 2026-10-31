@@ -311,7 +311,14 @@ void transfer(Endpoint& from,Endpoint& to,const std::string& name,const Entry& i
  if(info.directory)to.make_directory(name);
  else{auto data=from.read(name);to.write(name,*data,info);}
 }
-void erase(Endpoint& endpoint,const std::string& name){endpoint.remove(name);}
+bool erase(Endpoint& endpoint,const std::string& name,bool recycle){
+ if(recycle&&endpoint.supports_recycle_bin()){
+  endpoint.recycle(name);
+  return true;
+ }
+ endpoint.remove(name);
+ return false;
+}
 std::string unique_run_id(){
  static std::atomic<unsigned long long> serial{0};
  return std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())
@@ -427,14 +434,20 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallback
    if(entry==leftScan.end())throw std::runtime_error("Deletion target vanished: "+d.relative);
    preserve(left,d.relative,entry->second,"delete-left",true);
    events.record("delete-left",d.relative);
-   erase(left,d.relative);++result.removed;
+   if(erase(left,d.relative,options_.recycle_local_deletions)){
+    ++result.recycled;events.record("recycle-left",d.relative);
+   }
+   ++result.removed;
   }
   if(d.action==Action::DeleteRight){
    auto entry=rightScan.find(d.relative);
    if(entry==rightScan.end())throw std::runtime_error("Deletion target vanished: "+d.relative);
    preserve(right,d.relative,entry->second,"delete-right",false);
    events.record("delete-right",d.relative);
-   erase(right,d.relative);++result.removed;
+   if(erase(right,d.relative,options_.recycle_local_deletions)){
+    ++result.recycled;events.record("recycle-right",d.relative);
+   }
+   ++result.removed;
   }
   if(d.action==Action::DeleteRight||d.action==Action::DeleteLeft){
    journal_completed(journal,d.relative);
@@ -468,7 +481,8 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallback
  save(state_,state);
  events.record("committed",{}, "copied="+std::to_string(result.copied)+
   " deleted="+std::to_string(result.removed)+
-  " archived="+std::to_string(result.archived));
+  " archived="+std::to_string(result.archived)+
+  " recycled="+std::to_string(result.recycled));
  if(!fs::remove(journal))throw std::runtime_error("Cannot finalize recovery journal");
  sync_parent(journal);
  emit(callbacks,Phase::Complete,1,1);

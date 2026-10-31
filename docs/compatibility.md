@@ -37,7 +37,7 @@ Les fichiers sont lus intégralement lors du calcul SHA-256. Une erreur de listi
 | Identifiants réseau | Champs et Windows Credential Manager |
 | Fenêtre de progression | Barre par phase et fichier, annulation entre fichiers |
 | Dialogue de conflits par fichier | Choix Keep left / Keep right / Skip dans la liste |
-| Deplacer les suppressions vers la corbeille | Archive de recuperation applicative avant toute operation destructive ; Corbeille Windows native non implementee |
+| Deplacer les suppressions vers la corbeille | Corbeille native Windows sur lecteur fixe local ; archive applicative avant operation destructive selon le profil |
 | Groupes de synchronisations | Non implémenté |
 | Fenetres de logs et comportements expert | Journaux JSONL disponibles ; ecran expert non implemente |
 | Extension native moderne Windows 11 | Non implémentée |
@@ -93,3 +93,15 @@ dossier local, sans ecrasement et avec controle SHA-256. Une restauration
 directe sur l'endpoint d'origine, la corbeille Windows et les groupes de
 restauration restent a implementer. Un manifeste WiX prepare un MSI, mais
 le build MSVC/vcpkg/WiX doit encore etre valide sur runner Windows.
+
+
+## Corbeille Windows (iteration 0.9)
+
+La Corbeille native Windows est disponible via IFileOperation et
+FOFX_RECYCLEONDELETE pour les lecteurs fixes locaux. Un echec
+ne declenche aucune suppression permanente de secours.
+WSL, UNC, FTP et SFTP conservent leur mecanisme d'archivage
+et leurs suppressions selon les regles de synchronisation.
+Les profils V1/V2 restent lisibles ; V3 contient la nouvelle option.
+Le test de fonctionnement Windows 11 reste a executer sur un poste
+Windows reel. Voir [integration Corbeille](windows-recycle.md).

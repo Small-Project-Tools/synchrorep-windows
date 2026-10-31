@@ -13,6 +13,7 @@ Portage natif C++20 de [Synchrorep pour GNOME](https://github.com/sebk69/Synchro
 - Interface Windows avec fiches de synchronisation, configuration des endpoints, politiques, aperçu des actions, confirmation des suppressions et commandes pour les identifiants Windows.
 - Intégration au menu contextuel **classique** de l'Explorateur (Windows 11 : « Afficher d'autres options »).
 - Archives locales de recuperation avant suppressions et remplacements, avec verification SHA-256 des anciennes versions (local, WSL, FTP, SFTP).
+- Corbeille Windows native (IFileOperation) pour les suppressions sur lecteurs locaux fixes eligibles ; les fichiers WSL, UNC et distants continuent d'utiliser les archives de recuperation.
 - Journaux d'execution JSONL, consultation directe des dossiers archives/logs sous Windows.
 - Tests C++ du moteur, empreintes SHA-256, sauvegardes de recuperation et stockage des profils ; tests d'integration FTP/SFTP sur serveurs locaux jetables.
 
@@ -50,7 +51,7 @@ Démarrer `synchrorep.exe`. L'écran **Synchrorep - Settings** propose :
 - Les identifiants FTP/SFTP de chaque extrémité, avec sauvegarde et lecture explicites via le **Gestionnaire d'identifiants Windows**. Ils ne sont jamais enregistrés dans le fichier des fiches.
 - Le chemin du `known_hosts` requis pour SFTP, les politiques de conflit, la propagation des suppressions, la prévisualisation et l'exécution.
 - Une case activant ou supprimant le menu contextuel classique pour les dossiers.
-- La case **Preserve old versions** (activee par defaut et memorisee dans chaque profil), avec les commandes **Open recovery archive** et **Open execution logs**.
+- Les cases **Preserve old versions** et **Use Windows Recycle Bin (local)**, actives par defaut et memorisees dans chaque profil, avec les commandes **Browse / restore archives** et **Open execution logs**.
 
 Les fiches sont enregistrées sous `%LOCALAPPDATA%\Synchrorep\profiles.dat`, sans mot de passe. Les historiques individuels sont enregistrés dans le même répertoire avec une clé SHA-256 dérivée du couple d'emplacements.
 
@@ -105,8 +106,10 @@ etre validee.
 
 Les journaux JSONL sont sous `%LOCALAPPDATA%\Synchrorep\logs`.
 Les archives et journaux ne sont ni chiffres au repos ni nettoyes
-automatiquement. Cette fonction n'utilise **pas** la Corbeille native
-de Windows ; la restauration est encore manuelle.
+automatiquement. L'archive reste une quarantaine applicative et ne remplace pas
+la Corbeille Windows. La Corbeille native est maintenant disponible pour les
+lecteurs locaux Windows compatibles et la restauration depuis l'archive
+applicative reste manuelle.
 
 Consulter [le guide de restauration](docs/recovery-archive.md).
 
@@ -129,3 +132,26 @@ Le manifeste WiX est dans `windows/installer/Synchrorep.wxs`. Le job manuel
 Ce job requiert un runner Windows avec Visual Studio, .NET et WiX 5 ; il
 n'a pas encore ete valide sur une machine Windows. L'artefact MinGW Linux
 reste limite aux endpoints locaux/WSL.
+
+
+## Corbeille native Windows (0.9)
+
+Lors d'une suppression sur un lecteur fixe local Windows compatible,
+Synchrorep demande a l'API Shell **IFileOperation** de placer l'element
+dans la Corbeille. Le moteur ne remplace jamais une erreur de mise a la
+Corbeille par une suppression permanente automatique.
+
+La case **Use Windows Recycle Bin (local)** permet de desactiver ce
+comportement pour chaque fiche. Les partages reseau, WSL, FTP et SFTP
+n'utilisent pas cette fonction et peuvent effectuer des suppressions
+permanentes, precedees d'une sauvegarde dans l'archive applicative si
+**Preserve old versions** est actif.
+
+Le format de profil passe a \`SYNCHROREP-PROFILES3\` et conserve la
+compatibilite de lecture avec les profils V1 et V2. Le nombre de
+suppressions effectuees par la Corbeille est affiche separement.
+
+La fonctionnalite a passe la compilation MinGW et les tests de politiques
+de suppression avec un endpoint de simulation. Le fonctionnement effectif
+de la Corbeille sous Windows 11 attend une validation native.
+Consulter [les details et limites](docs/windows-recycle.md).

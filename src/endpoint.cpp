@@ -1,5 +1,6 @@
 #include "synchrorep/endpoint.hpp"
 #include "synchrorep/remote_endpoint.hpp"
+#include "synchrorep/recycle_bin.hpp"
 #include <algorithm>
 #include <chrono>
 #include <fstream>
@@ -108,6 +109,18 @@ void LocalEndpoint::remove(const std::string& relative){
  const auto p=within(relative);auto s=stat(p);
  if(!fs::remove(p))throw std::runtime_error("Could not delete "+p.string());
  (void)s;
+}
+bool LocalEndpoint::supports_recycle_bin()const {
+ return supports_native_recycle(root_);
+}
+void LocalEndpoint::recycle(const std::string& relative){
+ if(!supports_recycle_bin())
+  throw std::runtime_error("Native Recycle Bin unsupported for this endpoint");
+ const auto target=within(relative);
+ // Reject a symlink or junction before delegating to the Shell API.
+ const auto status=fs::symlink_status(target);
+ if(fs::is_symlink(status))throw std::runtime_error("Cannot recycle symbolic link");
+ move_to_native_recycle(target);
 }
 EndpointKind endpoint_kind(const std::string& location) {
  if(starts(location,"wsl://"))return EndpointKind::Wsl;

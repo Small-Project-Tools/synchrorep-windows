@@ -33,7 +33,7 @@ enum Control : int {
  IdRemember=113,IdLoadCredentials=114,IdPolicy=115,IdDeletes=116,
  IdPreview=117,IdExecute=118,IdChanges=119,IdExplorer=120,
  IdCancel=121,IdKeepLeft=122,IdKeepRight=123,IdSkip=124,IdProgress=125,IdStatus=126,IdResume=127,
- IdProtect=128,IdOpenRecovery=129,IdOpenLogs=130
+ IdProtect=128,IdOpenRecovery=129,IdOpenLogs=130,IdRecycle=131
 };
 HWND controls[140]{};
 HWND mainWindow=nullptr;
@@ -157,6 +157,7 @@ void loadProfile(int index){
  SendMessageW(controls[IdPolicy],CB_SETCURSEL,static_cast<WPARAM>(p.conflict),0);
  SendMessageW(controls[IdDeletes],BM_SETCHECK,p.propagate_deletions?BST_CHECKED:BST_UNCHECKED,0);
  SendMessageW(controls[IdProtect],BM_SETCHECK,p.preserve_changes?BST_CHECKED:BST_UNCHECKED,0);
+ SendMessageW(controls[IdRecycle],BM_SETCHECK,p.recycle_local_deletions?BST_CHECKED:BST_UNCHECKED,0);
  SendMessageW(controls[IdChanges],LB_RESETCONTENT,0,0);
  clearCredentials();updateList();
 }
@@ -168,6 +169,7 @@ Profile fromForm(){
  p.conflict=idx>=0&&idx<=4?static_cast<ConflictPolicy>(idx):ConflictPolicy::Ask;
  p.propagate_deletions=SendMessageW(controls[IdDeletes],BM_GETCHECK,0,0)==BST_CHECKED;
  p.preserve_changes=SendMessageW(controls[IdProtect],BM_GETCHECK,0,0)==BST_CHECKED;
+ p.recycle_local_deletions=SendMessageW(controls[IdRecycle],BM_GETCHECK,0,0)==BST_CHECKED;
  return p;
 }
 std::wstring credentialTargetForm(int uriId){return credentialTarget(toUtf8(get(uriId)));}
@@ -222,7 +224,7 @@ void setBusy(bool running){
  for(int id:{IdProfiles,IdNew,IdSave,IdDelete,IdName,IdLeft,IdRight,
   IdLeftUser,IdLeftPassword,IdRightUser,IdRightPassword,IdKnownHosts,
   IdRemember,IdLoadCredentials,IdPolicy,IdDeletes,IdPreview,IdExecute,
-  IdExplorer,IdKeepLeft,IdKeepRight,IdSkip,IdResume,IdProtect,IdOpenRecovery,IdOpenLogs})
+  IdExplorer,IdKeepLeft,IdKeepRight,IdSkip,IdResume,IdProtect,IdOpenRecovery,IdOpenLogs,IdRecycle})
    EnableWindow(controls[id],!running);
  EnableWindow(controls[IdCancel],running);
 }
@@ -244,7 +246,7 @@ void startSync(bool execute){
  if(busy)return;
  auto settings=getJobSettings(execute);
  if(execute&&MessageBoxW(mainWindow,
-   L"Synchronization may permanently delete files. Review the preview and confirm that you want to continue.",
+   L"Local fixed-drive deletions can use the Windows Recycle Bin. WSL/UNC and FTP/SFTP may permanently delete originals after recovery archiving (if enabled). Review Preview first. Continue?",
    L"Confirm synchronization",MB_YESNO|MB_ICONWARNING|MB_DEFBUTTON2)!=IDYES)return;
  if(!job)job=std::make_unique<synchrorep::winui::AsyncJob>(mainWindow);
  SendMessageW(controls[IdProgress],PBM_SETPOS,0,0);
@@ -258,7 +260,8 @@ void startSync(bool execute){
    auto b=endpointFrom(settings.profile.right,settings.rightUser,
                        settings.rightPassword,settings.profile.known_hosts);
    Options options{settings.profile.conflict,settings.profile.propagate_deletions,
-                   settings.overrides,settings.resume,settings.profile.preserve_changes};
+                   settings.overrides,settings.resume,settings.profile.preserve_changes,
+                    settings.profile.recycle_local_deletions};
    Engine engine(statePath(*a,*b),std::move(options));
    result.decisions=engine.plan(*a,*b,callbacks);
    if(settings.execute){
@@ -336,6 +339,7 @@ void onFinished(std::unique_ptr<synchrorep::winui::FinishedEvent> result){
   auto text=L"Copied: "+std::to_wstring(result->result.copied)+
             L"\nDeleted: "+std::to_wstring(result->result.removed)+
             L"\nRecovery copies: "+std::to_wstring(result->result.archived)+
+            L"\nRecycled: "+std::to_wstring(result->result.recycled)+
             L"\nConflicts: "+std::to_wstring(result->result.conflicts.size());
   set(IdStatus,L"Synchronization complete.");
   MessageBoxW(mainWindow,text.c_str(),L"Synchrorep",MB_OK|MB_ICONINFORMATION);
@@ -571,8 +575,11 @@ void initializeControls(HWND h){
  place(h,L"BUTTON",L"Preserve old versions",BS_AUTOCHECKBOX|WS_TABSTOP,
        18,566,274,24,IdProtect);
  SendMessageW(controls[IdProtect],BM_SETCHECK,BST_CHECKED,0);
- button(h,L"Browse / restore archives",IdOpenRecovery,18,603,274);
- button(h,L"Open execution logs",IdOpenLogs,18,638,274);
+ place(h,L"BUTTON",L"Use Windows Recycle Bin (local)",BS_AUTOCHECKBOX|WS_TABSTOP,
+       18,597,274,24,IdRecycle);
+ SendMessageW(controls[IdRecycle],BM_SETCHECK,BST_CHECKED,0);
+ button(h,L"Browse / restore archives",IdOpenRecovery,18,637,274);
+ button(h,L"Open execution logs",IdOpenLogs,18,675,274);
 
  label(h,L"Profile name",320,16);
  edit(h,IdName,320,39,546);

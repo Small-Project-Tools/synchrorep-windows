@@ -1,4 +1,5 @@
 #include "synchrorep/engine.hpp"
+#include "synchrorep/recycle_bin.hpp"
 #include <cassert>
 #include <algorithm>
 #include <map>
@@ -19,6 +20,35 @@ static std::string read(const fs::path& p){
  return {std::istreambuf_iterator<char>(f),{}};
 }
 static bool throws(const auto& callable){try{callable();return false;}catch(const std::exception&){return true;}}
+// Injectable fake of the Windows Shell recycler: exercises engine policy
+// without needing a GUI or an actual Windows Recycle Bin in CI.
+struct TestRecyclingEndpoint final:Endpoint {
+ LocalEndpoint inner;
+ fs::path simulated_bin;
+ bool fail=false;
+ int recycled=0;
+ int permanently_deleted=0;
+ TestRecyclingEndpoint(const fs::path& path,const fs::path& bin)
+ :inner(path),simulated_bin(bin){}
+ std::string identity()const override {return inner.identity();}
+ Snapshot scan()const override {return inner.scan();}
+ std::unique_ptr<std::istream> read(const std::string& relative)const override {return inner.read(relative);}
+ void write(const std::string& relative,std::istream& input,const Entry& data)override {
+  inner.write(relative,input,data);
+ }
+ void make_directory(const std::string& relative)override {inner.make_directory(relative);}
+ void remove(const std::string& relative)override {
+  ++permanently_deleted;
+  inner.remove(relative);
+ }
+ bool supports_recycle_bin()const override{return true;}
+ void recycle(const std::string& relative)override {
+  if(fail)throw std::runtime_error("Simulated recycle operation failed");
+  fs::create_directories((simulated_bin/relative).parent_path());
+  fs::rename(inner.root()/relative,simulated_bin/relative);
+  ++recycled;
+ }
+};
 int main(){
  const auto root=fs::temp_directory_path()/("synchrorep-test-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
  auto a=root/"a",b=root/"b",c=root/"c";fs::create_directories(a);fs::create_directories(b);fs::create_directories(c);
@@ -286,6 +316,49 @@ int main(){
   assert(std::any_of(explicitSkip.begin(),explicitSkip.end(),[](const Decision& d){
    return d.action==Action::Skip;
   }));
+  // Recycle policy uses the recycler only when supported and enabled.
+  auto recycleL=root/"recycle-left",recycleR=root/"recycle-right";
+  fs::create_directories(recycleL);fs::create_directories(recycleR);
+  LocalEndpoint recycleSource(recycleL);
+  TestRecyclingEndpoint recycleDest(recycleR,root/"fake-recycle-bin");
+  Engine recycleEngine(root/"state"/"recycle.state");
+  write(recycleL/"gone.txt","valuable");
+  assert(recycleEngine.run(recycleSource,recycleDest).copied==1);
+  fs::remove(recycleL/"gone.txt");
+  auto recycled=recycleEngine.run(recycleSource,recycleDest);
+  assert(recycled.removed==1&&recycled.recycled==1&&recycled.archived==1);
+  assert(recycleDest.recycled==1&&recycleDest.permanently_deleted==0);
+  assert(read(root/"fake-recycle-bin"/"gone.txt")=="valuable");
+  // Explicit user opt-out invokes a normal removal instead.
+  auto permanentL=root/"permanent-left",permanentR=root/"permanent-right";
+  fs::create_directories(permanentL);fs::create_directories(permanentR);
+  LocalEndpoint permanentSource(permanentL);
+  TestRecyclingEndpoint permanentDest(permanentR,root/"unused-recycle-bin");
+  Engine permanent(root/"state"/"permanent.state",
+   Options{ConflictPolicy::Ask,true,{},false,true,false});
+  write(permanentL/"gone.txt","old");
+  permanent.run(permanentSource,permanentDest);
+  fs::remove(permanentL/"gone.txt");
+  auto permanentResult=permanent.run(permanentSource,permanentDest);
+  assert(permanentResult.removed==1&&permanentResult.recycled==0);
+  assert(permanentDest.permanently_deleted==1&&permanentDest.recycled==0);
+  // Recycle errors must never be downgraded to permanent deletion.
+  auto failureL=root/"failure-left",failureR=root/"failure-right";
+  fs::create_directories(failureL);fs::create_directories(failureR);
+  LocalEndpoint failureSource(failureL);
+  TestRecyclingEndpoint failureDest(failureR,root/"failed-bin");
+  Engine failureEngine(root/"state"/"failed-recycle.state");
+  write(failureL/"keep.txt","keep");
+  failureEngine.run(failureSource,failureDest);
+  fs::remove(failureL/"keep.txt");
+  failureDest.fail=true;
+  assert(throws([&]{failureEngine.run(failureSource,failureDest);}));
+  assert(failureDest.permanently_deleted==0);
+  assert(fs::exists(failureR/"keep.txt"));
+  assert(failureEngine.has_pending_recovery());
+#ifndef _WIN32
+  assert(!supports_native_recycle(recycleR));
+#endif
   // A malformed history or a symlink in the tree must fail closed.
   write(root/"state"/"bad.state","INVALID-HEADER\n");
   assert(throws([&]{Engine(root/"state"/"bad.state").run(u,v);}));

@@ -1,23 +1,25 @@
 #include "synchrorep/engine.hpp"
 #include <iostream>
 int main(int argc,char**argv){
- if(argc<4||argc>6){
-  std::cerr<<"Usage: synchrorep LEFT RIGHT STATE_FILE [--dry-run] [--resume]\n";
+ if(argc<4||argc>7){
+  std::cerr<<"Usage: synchrorep LEFT RIGHT STATE_FILE [--dry-run] [--resume] [--no-recycle]\n";
   std::cerr<<"Endpoint types: local filesystem, wsl://distro/path (Windows only), FTP/SFTP when built with SYNCHROREP_REMOTE=ON.\n";
   return 2;
  }
  try{
-  bool dry=false,resume=false;
+  bool dry=false,resume=false,recycle=true;
   for(int i=4;i<argc;++i){
    std::string option=argv[i];
    if(option=="--dry-run")dry=true;
    else if(option=="--resume")resume=true;
+   else if(option=="--no-recycle")recycle=false;
    else return 2;
   }
   auto left=synchrorep::open_endpoint(argv[1]);
   auto right=synchrorep::open_endpoint(argv[2]);
   synchrorep::Options options;
   options.resume_interrupted=resume;
+  options.recycle_local_deletions=recycle;
   synchrorep::Engine engine(argv[3],options);
   const auto decisions=engine.plan(*left,*right);
   for(const auto& d:decisions){

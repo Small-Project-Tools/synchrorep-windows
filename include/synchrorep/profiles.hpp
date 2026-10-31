@@ -12,6 +12,7 @@ struct Profile {
  ConflictPolicy conflict=ConflictPolicy::Ask;
  bool propagate_deletions=true;
  bool preserve_changes=true;
+ bool recycle_local_deletions=true;
 };
 class ProfileStore {
 public:

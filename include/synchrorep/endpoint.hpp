@@ -36,6 +36,9 @@ public:
  virtual void write(const std::string& relative, std::istream& input, const Entry& source) = 0;
  virtual void make_directory(const std::string& relative) = 0;
  virtual void remove(const std::string& relative) = 0;
+ // Native recycling is optional. There is NEVER an implicit permanent-delete fallback.
+ virtual bool supports_recycle_bin() const {return false;}
+ virtual void recycle(const std::string&) {throw std::runtime_error("Recycle Bin unsupported");}
 };
 
 class LocalEndpoint final : public Endpoint {
@@ -47,6 +50,8 @@ public:
  void write(const std::string& relative, std::istream& input, const Entry& source) override;
  void make_directory(const std::string& relative) override;
  void remove(const std::string& relative) override;
+ bool supports_recycle_bin() const override;
+ void recycle(const std::string& relative) override;
  const fs::path& root() const {return root_;}
 private:
  fs::path root_;
