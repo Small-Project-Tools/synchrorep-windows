@@ -233,6 +233,7 @@ void journal_completed(const fs::path& file,const std::string& relative){
  out.close();
  sync_file(file);
 }
+#ifndef SYNCHROREP_SQLITE_ENABLED
 void save_legacy(const fs::path& file,const State& state) {
  auto parent=file.parent_path();
  if(!parent.empty())fs::create_directories(parent);
@@ -261,6 +262,7 @@ void save_legacy(const fs::path& file,const State& state) {
  fs::remove(backup,ec);
  sync_parent(file);
 }
+#endif
 void save(const fs::path& file,const State& state){
 #ifdef SYNCHROREP_SQLITE_ENABLED
  SqliteHistory store(sqlite_path(file));

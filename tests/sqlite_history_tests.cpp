@@ -18,6 +18,13 @@ int main(){
   assert(recovered.size()==1);
   assert(recovered.at("fichier special ' x.txt").right.modified==124);
   assert(storage.load("other","right").empty());
+  // A failed replacement must roll back the entire previous snapshot.
+  StoredHistory invalid=entries;
+  invalid["../escape"]={{true,false,1,1,""},{true,false,1,1,""}};
+  bool rejected=false;
+  try{storage.save("left","right",invalid);}catch(const std::exception&){rejected=true;}
+  assert(rejected);
+  assert(storage.load("left","right").size()==1);
   storage.save("left","right",{});
   assert(storage.load("left","right").empty());
   assert(storage.has_pair("left","right"));

@@ -69,6 +69,11 @@ int main(){
   auto partial=ignoring.run(a,b);
   assert(partial.conflicts.size()==1&&read(b/"safe.txt")=="SAFE");
   assert(ignoring.run(a,b).conflicts.size()==1);
+#ifdef SYNCHROREP_SQLITE_ENABLED
+  // Persisted history is SQLite, and must reject reuse with other endpoints.
+  assert(fs::exists(root/"state"/"history.txt.sqlite"));
+  assert(!fs::exists(root/"state"/"history.txt")); // New configurations never emit text history.
+#endif
   assert(throws([&]{e.run(a,c);}));
   assert(throws([&]{e.run(a,a);}));
   assert(throws([&]{e.run(a,a/"child");}));
