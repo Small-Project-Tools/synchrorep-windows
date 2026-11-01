@@ -32,6 +32,8 @@
 #include "startup_registry.hpp"
 #include "synchrorep/startup_profiles.hpp"
 #include "synchrorep/explorer_launch.hpp"
+#include "ui_layout.hpp"
+#include "ui_theme.hpp"
 
 namespace {
 using namespace synchrorep;
@@ -44,7 +46,24 @@ enum Control : int {
  IdCancel=121,IdKeepLeft=122,IdKeepRight=123,IdSkip=124,IdProgress=125,IdStatus=126,IdResume=127,
  IdProtect=128,IdOpenRecovery=129,IdOpenLogs=130,IdRecycle=131,IdMirror=132,IdAutoStart=133,IdVerifyHash=134
 };
-HWND controls[140]{};
+enum ExtraControl : int {
+ IdTabConfiguration=200,IdTabPreview=201,IdTabHistory=202,IdTabSettings=203,
+ IdBrowseSource=204,IdBrowseDestination=205,IdModeBidirectional=206,IdModeMirror=207,
+ IdSettingsNetwork=208,IdSettingsBehavior=209,
+ IdLabelName=210,IdLabelSource=211,IdLabelDestination=212,IdLabelMode=213,
+ IdLabelOptions=214,IdLabelLeftUser=215,IdLabelLeftPassword=216,
+ IdLabelRightUser=217,IdLabelRightPassword=218,IdLabelHosts=219,
+ IdLabelPolicy=220,IdSummaryTotal=221,IdSummaryCopies=222,
+ IdSummaryUpdates=223,IdSummaryDeletes=224,IdSummaryConflicts=225,
+ IdHistoryInfo=226,IdPreviewInfo=227,IdNetworkInfo=228,IdBehaviorInfo=229,
+ IdConfigurationHint=230,IdSummaryHint=231
+};
+enum class MainTab {Configuration,Preview,History,Settings};
+enum class SettingsPane {Network,Behavior};
+MainTab activeTab=MainTab::Configuration;
+SettingsPane settingsPane=SettingsPane::Network;
+synchrorep::winui::UiLayout mainLayout{};
+HWND controls[256]{};
 HWND mainWindow=nullptr;
 HWND syncWindow=nullptr;
 HWND syncProgress=nullptr;
@@ -58,6 +77,7 @@ int selectedProfile=-1;
 bool loading=false;
 std::unique_ptr<synchrorep::winui::AsyncJob> job;
 bool busy=false;
+double progressFraction=0.0;
 std::map<std::string,ConflictChoice> overrides;
 std::vector<Decision> shownDecisions;
 HWND recoveryWindow=nullptr;
@@ -266,6 +286,10 @@ HWND place(HWND parent,const wchar_t* type,const wchar_t* value,DWORD style,
  if(!win)throw std::runtime_error("Could not create Windows control");
  if(font)SendMessageW(win,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE);
  if(id)controls[id]=win;
+ if(std::wcscmp(type,L"BUTTON")==0) {
+  if((style&BS_TYPEMASK)==BS_AUTOCHECKBOX)synchrorep::winui::ui_style_checkbox(win);
+  else if((style&BS_TYPEMASK)==BS_OWNERDRAW)synchrorep::winui::ui_style_button(win);
+ }
  return win;
 }
 void label(HWND h,const wchar_t* text,int x,int y,int w=350){
@@ -273,11 +297,22 @@ void label(HWND h,const wchar_t* text,int x,int y,int w=350){
 }
 void edit(HWND h,int id,int x,int y,int w,bool password=false){
  place(h,L"EDIT",L"",WS_TABSTOP|ES_AUTOHSCROLL|(password?ES_PASSWORD:0),
-       x,y,w,25,id,WS_EX_CLIENTEDGE);
+       x,y,w,25,id);
 }
 void button(HWND h,const wchar_t* text,int id,int x,int y,int w){
- place(h,L"BUTTON",text,WS_TABSTOP,x,y,w,30,id);
+ place(h,L"BUTTON",text,WS_TABSTOP|BS_OWNERDRAW,x,y,w,30,id);
 }
+void namedLabel(HWND h,const wchar_t* text,int id) {
+ place(h,L"STATIC",text,0,0,0,180,20,id);
+}
+void moveControl(int id,int x,int y,int w,int h) {
+ if(controls[id])MoveWindow(controls[id],x,y,std::max(1,w),std::max(1,h),TRUE);
+}
+std::optional<std::wstring> chooseDestinationFolder(HWND owner,const std::wstring& source);
+void refreshSummary();
+void showTab(MainTab tab);
+void reflowControls(HWND window);
+void updateModeDescription();
 std::wstring operationName(Action a){
  switch(a){
  case Action::CopyLeftToRight:return L"Left -> Right";
@@ -300,6 +335,7 @@ void updateList(){
  if(selectedProfile>=0&&selectedProfile<static_cast<int>(profiles.size()))
   SendMessageW(controls[IdProfiles],LB_SETCURSEL,selectedProfile,0);
  loading=false;
+ InvalidateRect(mainWindow,nullptr,FALSE);
 }
 void clearCredentials(){
  set(IdLeftUser,L"");set(IdLeftPassword,L"");
@@ -319,7 +355,9 @@ void loadProfile(int index){
  SendMessageW(controls[IdVerifyHash],BM_SETCHECK,p.verify_hash?BST_CHECKED:BST_UNCHECKED,0);
  EnableWindow(controls[IdAutoStart],p.mode==SyncMode::Mirror);
  SendMessageW(controls[IdChanges],LB_RESETCONTENT,0,0);
- clearCredentials();updateList();
+ clearCredentials();updateList();refreshSummary();updateModeDescription();
+ InvalidateRect(controls[IdModeBidirectional],nullptr,FALSE);
+ InvalidateRect(controls[IdModeMirror],nullptr,FALSE);
 }
 Profile fromForm(){
  Profile p; p.name=toUtf8(get(IdName));
@@ -385,15 +423,39 @@ void showPlan(const std::vector<Decision>& plan){
   SendMessageW(controls[IdChanges],LB_ADDSTRING,0,reinterpret_cast<LPARAM>(text.c_str()));
   if(syncChanges)SendMessageW(syncChanges,LB_ADDSTRING,0,reinterpret_cast<LPARAM>(text.c_str()));
  }
+ refreshSummary();
+}
+void refreshSummary(){
+ int copied=0,updated=0,removed=0,conflicts=0;
+ for(const auto& d:shownDecisions) {
+  if(d.action==Action::CopyLeftToRight||d.action==Action::CopyRightToLeft)
+   ++copied;
+  else if(d.action==Action::DeleteLeft||d.action==Action::DeleteRight)
+   ++removed;
+  else if(d.action==Action::Conflict)++conflicts;
+ }
+ // The engine describes copy/update with the same action. Do not fabricate
+ // separate update counts until the plan model distinguishes these operations.
+ set(IdSummaryTotal,L"Planned actions  "+std::to_wstring(shownDecisions.size()));
+ set(IdSummaryCopies,L"Transfers  "+std::to_wstring(copied));
+ set(IdSummaryUpdates,L"Updates  —");
+ set(IdSummaryDeletes,L"Deletions  "+std::to_wstring(removed));
+ set(IdSummaryConflicts,L"Conflicts  "+std::to_wstring(conflicts));
 }
 void setBusy(bool running){
  busy=running;
- for(int id:{IdProfiles,IdNew,IdSave,IdDelete,IdName,IdLeft,IdRight,
+ for(int id:std::initializer_list<int>{IdProfiles,IdNew,IdSave,IdDelete,IdName,IdLeft,IdRight,
   IdLeftUser,IdLeftPassword,IdRightUser,IdRightPassword,IdKnownHosts,
   IdRemember,IdLoadCredentials,IdPolicy,IdDeletes,IdPreview,IdExecute,
-  IdExplorer,IdKeepLeft,IdKeepRight,IdSkip,IdResume,IdProtect,IdOpenRecovery,IdOpenLogs,IdRecycle,IdMirror,IdAutoStart,IdVerifyHash})
+  IdExplorer,IdKeepLeft,IdKeepRight,IdSkip,IdResume,IdProtect,IdOpenRecovery,
+  IdOpenLogs,IdRecycle,IdMirror,IdAutoStart,IdVerifyHash,IdBrowseSource,
+  IdBrowseDestination,IdModeBidirectional,IdModeMirror})
    EnableWindow(controls[id],!running);
  EnableWindow(controls[IdCancel],running);
+ if(!running)
+  EnableWindow(controls[IdAutoStart],
+   SendMessageW(controls[IdMirror],BM_GETCHECK,0,0)==BST_CHECKED);
+ InvalidateRect(mainWindow,nullptr,FALSE);
 }
 JobSettings getJobSettings(bool execute){
  JobSettings settings;
@@ -430,6 +492,7 @@ void startSync(bool execute,bool trustedStartup=false){
    L"Confirm synchronization",MB_YESNO|MB_ICONWARNING|MB_DEFBUTTON2)!=IDYES)return;
  if(!job)job=std::make_unique<synchrorep::winui::AsyncJob>(mainWindow);
  SendMessageW(controls[IdProgress],PBM_SETPOS,0,0);
+ progressFraction=0.0;
  set(IdStatus,L"Starting...");
  setBusy(true);
  const bool mirrorMode=settings.profile.mode==SyncMode::Mirror&&execute;
@@ -525,6 +588,8 @@ void onProgress(std::unique_ptr<synchrorep::winui::ProgressEvent> event){
  const auto range=static_cast<LPARAM>(std::min<std::size_t>(info.total,1000000));
  SendMessageW(controls[IdProgress],PBM_SETRANGE32,0,std::max<LPARAM>(1,range));
  SendMessageW(controls[IdProgress],PBM_SETPOS,static_cast<WPARAM>(std::min<std::size_t>(info.completed,1000000)),0);
+ progressFraction=info.total?std::min(1.0,static_cast<double>(info.completed)/info.total):0.0;
+ InvalidateRect(mainWindow,nullptr,FALSE);
  if(syncProgress){
   SendMessageW(syncProgress,PBM_SETRANGE32,0,std::max<LPARAM>(1,range));
   SendMessageW(syncProgress,PBM_SETPOS,static_cast<WPARAM>(std::min<std::size_t>(info.completed,1000000)),0);
@@ -560,7 +625,10 @@ void onFinished(std::unique_ptr<synchrorep::winui::FinishedEvent> result){
             L"\nConflicts: "+std::to_wstring(result->result.conflicts.size());
   set(IdStatus,wasMirror?L"Continuous mirror stopped.":L"Synchronization complete.");
   MessageBoxW(syncWindow?syncWindow:mainWindow,text.c_str(),L"Synchrorep",MB_OK|MB_ICONINFORMATION);
- }else set(IdStatus,L"Preview complete. Select a conflict to choose its resolution.");
+ }else {
+  set(IdStatus,L"Preview complete. Select a conflict to choose its resolution.");
+  showTab(MainTab::Preview);
+ }
  if(syncStatus)SetWindowTextW(syncStatus,get(IdStatus).c_str());
  if(!wasMirror&&!IsWindowVisible(mainWindow)&&!syncWindow)showMainWindow();
 }
@@ -759,7 +827,7 @@ void onCommand(int id){
   set(IdKnownHosts,L"");
   set(IdName,L"New synchronization");set(IdLeft,L"");set(IdRight,L"");
   clearCredentials();SendMessageW(controls[IdChanges],LB_RESETCONTENT,0,0);
-  updateList();break;
+  updateList();refreshSummary();updateModeDescription();showTab(MainTab::Configuration);break;
  case IdSave:{
   if(busy)throw std::runtime_error("Cannot edit profiles during synchronization");
   auto p=fromForm();
@@ -839,8 +907,33 @@ void onCommand(int id){
   const auto enabled=SendMessageW(controls[IdMirror],BM_GETCHECK,0,0)==BST_CHECKED;
   EnableWindow(controls[IdAutoStart],enabled);
   if(!enabled)SendMessageW(controls[IdAutoStart],BM_SETCHECK,BST_UNCHECKED,0);
+  updateModeDescription();
+  InvalidateRect(controls[IdModeBidirectional],nullptr,FALSE);
+  InvalidateRect(controls[IdModeMirror],nullptr,FALSE);
   break;
  }
+ case IdModeBidirectional:
+ case IdModeMirror:{
+  if(busy)break;
+  SendMessageW(controls[IdMirror],BM_SETCHECK,
+    id==IdModeMirror?BST_CHECKED:BST_UNCHECKED,0);
+  onCommand(IdMirror);
+  break;
+ }
+ case IdBrowseSource:
+ case IdBrowseDestination:{
+  if(busy)break;
+  const auto location=chooseDestinationFolder(mainWindow,
+   id==IdBrowseSource?L"source":L"destination");
+  if(location)set(id==IdBrowseSource?IdLeft:IdRight,*location);
+  break;
+ }
+ case IdTabConfiguration:showTab(MainTab::Configuration);break;
+ case IdTabPreview:showTab(MainTab::Preview);break;
+ case IdTabHistory:showTab(MainTab::History);break;
+ case IdTabSettings:showTab(MainTab::Settings);break;
+ case IdSettingsNetwork:settingsPane=SettingsPane::Network;showTab(MainTab::Settings);break;
+ case IdSettingsBehavior:settingsPane=SettingsPane::Behavior;showTab(MainTab::Settings);break;
  case IdExplorer:
   if(!explorerMenuMachineInstalled())
    setExplorerMenu(SendMessageW(controls[IdExplorer],BM_GETCHECK,0,0)==BST_CHECKED);
@@ -863,73 +956,295 @@ void onCommand(int id){
  default:break;
  }
 }
+// Navigation does not recreate controls: existing profiles, credentials, preview
+// decisions and active jobs retain their native Win32 handles and state.
+void showTab(MainTab tab){
+ activeTab=tab;
+ for(HWND control:controls)
+  if(control)ShowWindow(control,SW_HIDE);
+ auto visible=[](std::initializer_list<int> ids){
+  for(const int id:ids)if(controls[id])ShowWindow(controls[id],SW_SHOWNA);
+ };
+ visible({IdProfiles,IdNew,IdDelete,IdSave,IdPreview,IdExecute,IdCancel,
+          IdTabConfiguration,IdTabPreview,IdTabHistory,IdTabSettings});
+ if(mainLayout.showSummary)
+  visible({IdStatus,IdSummaryTotal,IdSummaryCopies,IdSummaryUpdates,
+           IdSummaryDeletes,IdSummaryConflicts,IdSummaryHint});
+ else visible({IdStatus});
+ switch(tab){
+ case MainTab::Configuration:
+  visible({IdLabelName,IdName,IdLabelSource,IdLeft,IdBrowseSource,
+           IdLabelDestination,IdRight,IdBrowseDestination,IdLabelMode,
+           IdModeBidirectional,IdModeMirror,IdLabelOptions,IdDeletes,
+           IdProtect,IdRecycle,IdVerifyHash});
+  break;
+ case MainTab::Preview:
+  visible({IdPreviewInfo,IdChanges,IdKeepLeft,IdKeepRight,IdSkip});
+  break;
+ case MainTab::History:
+  visible({IdHistoryInfo,IdOpenRecovery,IdOpenLogs});
+  break;
+ case MainTab::Settings:
+  visible({IdSettingsNetwork,IdSettingsBehavior});
+  if(settingsPane==SettingsPane::Network)
+   visible({IdLabelLeftUser,IdLeftUser,IdLabelLeftPassword,IdLeftPassword,
+            IdLabelRightUser,IdRightUser,IdLabelRightPassword,IdRightPassword,
+            IdLabelHosts,IdKnownHosts,IdRemember,IdLoadCredentials,IdNetworkInfo});
+  else
+   visible({IdLabelPolicy,IdPolicy,IdMirror /* hidden below */,
+            IdAutoStart,IdResume,IdExplorer,IdBehaviorInfo});
+  break;
+ }
+ // The original checkbox remains the source of truth for the persisted mode;
+ // segmented controls operate it, but it is never displayed or focused.
+ ShowWindow(controls[IdMirror],SW_HIDE);
+ if(tab==MainTab::Configuration && mainLayout.content.h>=405)
+  visible({IdConfigurationHint});
+ if(mainLayout.showSummary)visible({IdSummaryHint});
+ for(int id:{IdTabConfiguration,IdTabPreview,IdTabHistory,IdTabSettings,
+             IdSettingsNetwork,IdSettingsBehavior,IdModeBidirectional,IdModeMirror})
+  if(controls[id])InvalidateRect(controls[id],nullptr,FALSE);
+ InvalidateRect(mainWindow,nullptr,FALSE);
+}
+
+void reflowControls(HWND window) {
+ RECT client{};GetClientRect(window,&client);
+ mainLayout=synchrorep::winui::compute_layout(client.right,client.bottom);
+ const auto& l=mainLayout;
+ const auto& side=l.sidebar;
+ const auto& panel=l.content;
+ const auto& footer=l.footer;
+ const int sx=side.x+13, sy=side.y+48, sw=side.w-26;
+ moveControl(IdProfiles,sx,sy,sw,std::max(75,side.h-110));
+ const int actionsY=side.y+side.h-49;
+ moveControl(IdNew,sx,actionsY,(sw-8)/2,33);
+ moveControl(IdDelete,sx+(sw-8)/2+8,actionsY,(sw-8)/2,33);
+
+ const int cx=panel.x+16,cy=panel.y,cw=panel.w-32;
+ const auto formY=[&](int offset){
+  return cy+synchrorep::winui::compact_form_y(l,offset);
+ };
+ // Keep all four tab buttons visible, also at 12-inch widths.
+ const int tabWidth=std::min(156,(l.tabs.w-36)/4);
+ const int tabX=16,tabY=l.tabs.y+5;
+ moveControl(IdTabConfiguration,tabX,tabY,tabWidth,34);
+ moveControl(IdTabPreview,tabX+tabWidth+6,tabY,tabWidth,34);
+ moveControl(IdTabHistory,tabX+2*(tabWidth+6),tabY,tabWidth,34);
+ moveControl(IdTabSettings,tabX+3*(tabWidth+6),tabY,tabWidth,34);
+ // Main form: all mandatory configuration fits at 880 x 520 client pixels.
+ moveControl(IdLabelName,cx,formY(43),cw,19);
+ moveControl(IdName,cx,formY(63),cw,29);
+ moveControl(IdLabelSource,cx,formY(99),cw,19);
+ moveControl(IdLeft,cx,formY(119),cw-46,29);
+ moveControl(IdBrowseSource,cx+cw-39,formY(119),39,29);
+ moveControl(IdLabelDestination,cx,formY(154),cw,19);
+ moveControl(IdRight,cx,formY(174),cw-46,29);
+ moveControl(IdBrowseDestination,cx+cw-39,formY(174),39,29);
+ moveControl(IdLabelMode,cx,formY(211),cw,20);
+ const int segment=(cw-10)/2;
+ moveControl(IdModeBidirectional,cx,formY(233),segment,33);
+ moveControl(IdModeMirror,cx+segment+10,formY(233),cw-segment-10,33);
+ moveControl(IdLabelOptions,cx,formY(274),cw,21);
+ const int second=cx+std::max(184,cw/2);
+ moveControl(IdDeletes,cx,formY(299),std::max(165,second-cx-8),24);
+ moveControl(IdProtect,second,formY(299),std::max(170,cx+cw-second),24);
+ moveControl(IdRecycle,cx,formY(323),std::max(165,second-cx-8),24);
+ moveControl(IdVerifyHash,second,formY(323),std::max(170,cx+cw-second),24);
+ moveControl(IdConfigurationHint,cx,formY(371),cw,
+             std::max(24,panel.h-synchrorep::winui::compact_form_y(l,371)-18));
+ // The preview has its own dedicated list and conflict resolution actions.
+ moveControl(IdPreviewInfo,cx,formY(45),cw,32);
+ moveControl(IdChanges,cx,formY(80),cw,std::max(80,panel.h-145));
+ const int conflictY=cy+panel.h-51;
+ const int third=(cw-16)/3;
+ moveControl(IdKeepLeft,cx,conflictY,third,33);
+ moveControl(IdKeepRight,cx+third+8,conflictY,third,33);
+ moveControl(IdSkip,cx+2*third+16,conflictY,cw-2*third-16,33);
+
+ moveControl(IdHistoryInfo,cx,formY(50),cw,62);
+ moveControl(IdOpenRecovery,cx,formY(134),std::min(cw,300),38);
+ moveControl(IdOpenLogs,cx,formY(188),std::min(cw,300),38);
+
+ moveControl(IdSettingsNetwork,cx,formY(44),(cw-10)/2,32);
+ moveControl(IdSettingsBehavior,cx+(cw-10)/2+10,formY(44),(cw-10)/2,32);
+ const int half=(cw-12)/2;
+ moveControl(IdLabelLeftUser,cx,formY(84),half,19);
+ moveControl(IdLabelLeftPassword,cx+half+12,formY(84),half,19);
+ moveControl(IdLeftUser,cx,formY(104),half,29);
+ moveControl(IdLeftPassword,cx+half+12,formY(104),half,29);
+ moveControl(IdLabelRightUser,cx,formY(144),half,19);
+ moveControl(IdLabelRightPassword,cx+half+12,formY(144),half,19);
+ moveControl(IdRightUser,cx,formY(164),half,29);
+ moveControl(IdRightPassword,cx+half+12,formY(164),half,29);
+ moveControl(IdLabelHosts,cx,formY(204),cw,19);
+ moveControl(IdKnownHosts,cx,formY(224),cw,29);
+ moveControl(IdRemember,cx,formY(267),half,34);
+ moveControl(IdLoadCredentials,cx+half+12,formY(267),half,34);
+ moveControl(IdNetworkInfo,cx,formY(313),cw,31);
+ moveControl(IdLabelPolicy,cx,formY(86),cw,20);
+ moveControl(IdPolicy,cx,formY(109),cw,180);
+ moveControl(IdAutoStart,cx,formY(162),cw,26);
+ moveControl(IdResume,cx,formY(198),cw,26);
+ moveControl(IdExplorer,cx,formY(234),cw,26);
+ moveControl(IdBehaviorInfo,cx,formY(282),cw,43);
+ moveControl(IdMirror,0,0,1,1);
+
+ const int fy=footer.y+10;
+ const int fw=footer.w;
+ const int buttonWidth[4]={108,112,142,98};
+ const int total=108+112+142+98+3*9;
+ int fx=footer.x+fw-total-12;
+ moveControl(IdSave,fx,fy,buttonWidth[0],36);fx+=buttonWidth[0]+9;
+ moveControl(IdPreview,fx,fy,buttonWidth[1],36);fx+=buttonWidth[1]+9;
+ moveControl(IdExecute,fx,fy,buttonWidth[2],36);fx+=buttonWidth[2]+9;
+ moveControl(IdCancel,fx,fy,buttonWidth[3],36);
+ moveControl(IdProgress,footer.x+14,footer.y+41,std::max(170,fw-total-42),5);
+ if(l.showSummary) {
+  const auto& r=l.summary;
+  const int rx=r.x+16;
+  const int width=r.w-32;
+  moveControl(IdStatus,rx,r.y+54,width,32);
+  moveControl(IdSummaryTotal,rx,r.y+114,width,28);
+  moveControl(IdSummaryCopies,rx,r.y+154,width,25);
+  moveControl(IdSummaryUpdates,rx,r.y+183,width,25);
+  moveControl(IdSummaryDeletes,rx,r.y+212,width,25);
+  moveControl(IdSummaryConflicts,rx,r.y+241,width,25);
+  moveControl(IdSummaryHint,rx,r.y+283,width,std::max(22,r.h-301));
+ }else moveControl(IdStatus,footer.x+16,footer.y+10,
+                   std::max(120,fw-total-42),31);
+ showTab(activeTab);
+}
 void initializeControls(HWND h){
- font=static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
- label(h,L"Configured synchronizations",18,16,285);
- place(h,L"LISTBOX",L"",WS_BORDER|WS_VSCROLL|LBS_NOTIFY,18,43,274,430,IdProfiles);
- button(h,L"New",IdNew,18,483,84);button(h,L"Save",IdSave,109,483,84);
- button(h,L"Delete",IdDelete,200,483,91);
- place(h,L"BUTTON",L"Explorer context menu",BS_AUTOCHECKBOX|WS_TABSTOP,18,534,270,24,IdExplorer);
- SendMessageW(controls[IdExplorer],BM_SETCHECK,explorerMenuInstalled()?BST_CHECKED:BST_UNCHECKED,0);
+ font=synchrorep::winui::ui_font();
+ synchrorep::winui::ui_set_dark_title(h);
+ // Sidebar (owner drawn to avoid the system light selection highlight).
+ place(h,L"LISTBOX",L"",LBS_NOTIFY|LBS_HASSTRINGS|LBS_OWNERDRAWFIXED|
+   WS_VSCROLL|WS_TABSTOP,0,0,150,150,IdProfiles);
+ button(h,L"+ New",IdNew,0,0,85);
+ button(h,L"Delete",IdDelete,0,0,85);
+ button(h,L"Save profile",IdSave,0,0,108);
+ button(h,L"Preview",IdPreview,0,0,108);
+ button(h,L"Start sync",IdExecute,0,0,140);
+ button(h,L"Stop",IdCancel,0,0,98);
+ EnableWindow(controls[IdCancel],FALSE);
+
+ for(const auto& entry:{
+  std::pair{IdTabConfiguration,L"Configuration"},
+  std::pair{IdTabPreview,L"Preview"},
+  std::pair{IdTabHistory,L"History"},
+  std::pair{IdTabSettings,L"Settings"}})
+  button(h,entry.second,entry.first,0,0,144);
+
+ namedLabel(h,L"Profile name",IdLabelName);
+ edit(h,IdName,0,0,200);
+ namedLabel(h,L"Source   ·   local, wsl://, ftp://, sftp://",IdLabelSource);
+ edit(h,IdLeft,0,0,200);
+ button(h,L"...",IdBrowseSource,0,0,38);
+ namedLabel(h,L"Destination   ·   local, WSL, FTP, SFTP",IdLabelDestination);
+ edit(h,IdRight,0,0,200);
+ button(h,L"...",IdBrowseDestination,0,0,38);
+ namedLabel(h,L"Synchronization mode",IdLabelMode);
+ button(h,L"Bidirectional",IdModeBidirectional,0,0,160);
+ button(h,L"Continuous mirror",IdModeMirror,0,0,160);
+ namedLabel(h,L"Safety and verification",IdLabelOptions);
+ place(h,L"STATIC",L"",0,0,0,460,54,IdConfigurationHint);
+ place(h,L"BUTTON",L"Propagate deletions",
+  BS_AUTOCHECKBOX|WS_TABSTOP,0,0,175,24,IdDeletes);
+ place(h,L"BUTTON",L"Keep previous versions",
+  BS_AUTOCHECKBOX|WS_TABSTOP,0,0,175,24,IdProtect);
+ place(h,L"BUTTON",L"Use Recycle Bin (local)",
+  BS_AUTOCHECKBOX|WS_TABSTOP,0,0,175,24,IdRecycle);
+ place(h,L"BUTTON",L"Verify SHA-256",
+  BS_AUTOCHECKBOX|WS_TABSTOP,0,0,175,24,IdVerifyHash);
+ for(int id:{IdDeletes,IdProtect,IdRecycle})
+  SendMessageW(controls[id],BM_SETCHECK,BST_CHECKED,0);
+ // Retain the established checkbox protocol for profile persistence and
+ // existing Win32 automation. Its visual replacement is the mode selector.
+ place(h,L"BUTTON",L"",BS_AUTOCHECKBOX,0,0,1,1,IdMirror);
+ SendMessageW(controls[IdMirror],BM_SETCHECK,BST_UNCHECKED,0);
+
+ place(h,L"STATIC",
+  L"Run Preview to see planned transfers, deletions and conflicts.",
+  0,0,0,340,30,IdPreviewInfo);
+ place(h,L"LISTBOX",L"",WS_BORDER|WS_VSCROLL|WS_HSCROLL|
+  LBS_NOTIFY|WS_TABSTOP,0,0,400,180,IdChanges);
+ button(h,L"Keep left",IdKeepLeft,0,0,115);
+ button(h,L"Keep right",IdKeepRight,0,0,115);
+ button(h,L"Skip file",IdSkip,0,0,115);
+
+ place(h,L"STATIC",
+  L"Restore a previous file version, inspect recovery archives, or open the run logs.\n"
+  L"Existing history and backups remain on disk.",
+  0,0,0,460,60,IdHistoryInfo);
+ button(h,L"Browse recovery archives",IdOpenRecovery,0,0,270);
+ button(h,L"Open execution logs",IdOpenLogs,0,0,270);
+
+ button(h,L"Network & credentials",IdSettingsNetwork,0,0,205);
+ button(h,L"Behavior & integration",IdSettingsBehavior,0,0,205);
+ namedLabel(h,L"Source username",IdLabelLeftUser);
+ namedLabel(h,L"Source password",IdLabelLeftPassword);
+ edit(h,IdLeftUser,0,0,220);
+ edit(h,IdLeftPassword,0,0,220,true);
+ namedLabel(h,L"Destination username",IdLabelRightUser);
+ namedLabel(h,L"Destination password",IdLabelRightPassword);
+ edit(h,IdRightUser,0,0,220);
+ edit(h,IdRightPassword,0,0,220,true);
+ namedLabel(h,L"SFTP known_hosts file (required for host verification)",IdLabelHosts);
+ edit(h,IdKnownHosts,0,0,440);
+ button(h,L"Remember logins",IdRemember,0,0,185);
+ button(h,L"Load saved logins",IdLoadCredentials,0,0,185);
+ place(h,L"STATIC",
+  L"Credentials are stored in Windows Credential Manager, never in profiles.",
+  0,0,0,470,32,IdNetworkInfo);
+
+ namedLabel(h,L"Conflict resolution",IdLabelPolicy);
+ place(h,L"COMBOBOX",L"",CBS_DROPDOWNLIST|WS_TABSTOP|WS_VSCROLL,
+  0,0,250,180,IdPolicy);
+ for(const wchar_t* choice:{L"Ask / stop",L"Ignore conflicts",
+  L"Stop on conflicts",L"Keep newest",L"Keep oldest"})
+  SendMessageW(controls[IdPolicy],CB_ADDSTRING,0,
+               reinterpret_cast<LPARAM>(choice));
+ SendMessageW(controls[IdPolicy],CB_SETCURSEL,0,0);
+ place(h,L"BUTTON",L"Start continuous mirror at Windows logon",
+       BS_AUTOCHECKBOX|WS_TABSTOP,0,0,400,25,IdAutoStart);
+ EnableWindow(controls[IdAutoStart],FALSE);
+ place(h,L"BUTTON",L"Resume interrupted runs (rescan and reconcile)",
+       BS_AUTOCHECKBOX|WS_TABSTOP,0,0,400,25,IdResume);
+ place(h,L"BUTTON",L"Explorer context menu",
+       BS_AUTOCHECKBOX|WS_TABSTOP,0,0,350,25,IdExplorer);
+ SendMessageW(controls[IdExplorer],BM_SETCHECK,
+  explorerMenuInstalled()?BST_CHECKED:BST_UNCHECKED,0);
  if(explorerMenuMachineInstalled()){
   SetWindowTextW(controls[IdExplorer],L"Explorer menu installed by MSI");
   EnableWindow(controls[IdExplorer],FALSE);
  }
- place(h,L"BUTTON",L"Preserve old versions",BS_AUTOCHECKBOX|WS_TABSTOP,
-       18,566,274,24,IdProtect);
- SendMessageW(controls[IdProtect],BM_SETCHECK,BST_CHECKED,0);
- place(h,L"BUTTON",L"Use Windows Recycle Bin (local)",BS_AUTOCHECKBOX|WS_TABSTOP,
-       18,597,274,24,IdRecycle);
- SendMessageW(controls[IdRecycle],BM_SETCHECK,BST_CHECKED,0);
- button(h,L"Browse / restore archives",IdOpenRecovery,18,637,274);
- button(h,L"Open execution logs",IdOpenLogs,18,675,274);
- place(h,L"BUTTON",L"Continuous local -> target mirror",BS_AUTOCHECKBOX|WS_TABSTOP,
-       18,716,274,24,IdMirror);
- SendMessageW(controls[IdMirror],BM_SETCHECK,BST_UNCHECKED,0);
- place(h,L"BUTTON",L"Start at Windows login",BS_AUTOCHECKBOX|WS_TABSTOP,
-       18,748,274,24,IdAutoStart);
- EnableWindow(controls[IdAutoStart],FALSE);
- place(h,L"BUTTON",L"Compare content with SHA-256 (slower)",
-       BS_AUTOCHECKBOX|WS_TABSTOP,18,777,290,24,IdVerifyHash);
+ place(h,L"STATIC",L"Mirror startup may modify or delete target files.\n"
+  L"Review Preview and keep recovery archives enabled.",
+  0,0,0,440,43,IdBehaviorInfo);
 
- label(h,L"Profile name",320,16);
- edit(h,IdName,320,39,546);
- label(h,L"Left directory / URI (local, wsl://, ftp://, sftp://)",320,77,540);
- edit(h,IdLeft,320,100,546);
- label(h,L"Right directory / URI",320,138);
- edit(h,IdRight,320,161,546);
- label(h,L"Remote account (left)",320,201);
- edit(h,IdLeftUser,320,226,246);
- label(h,L"Password (left)",584,201,250);
- edit(h,IdLeftPassword,584,226,282,true);
- label(h,L"Remote account (right)",320,265);
- edit(h,IdRightUser,320,290,246);
- label(h,L"Password (right)",584,265,250);
- edit(h,IdRightPassword,584,290,282,true);
- label(h,L"SFTP known_hosts file (required for SSH host verification)",320,329,545);
- edit(h,IdKnownHosts,320,352,546);
- button(h,L"Remember logins",IdRemember,320,389,185);
- button(h,L"Load saved logins",IdLoadCredentials,514,389,185);
- label(h,L"Conflict resolution",320,434);
- place(h,L"COMBOBOX",L"",CBS_DROPDOWNLIST|WS_TABSTOP|WS_VSCROLL,320,458,265,200,IdPolicy);
- for(const wchar_t* choice:{L"Ask / stop",L"Ignore conflicts",L"Stop on conflicts",L"Keep newest",L"Keep oldest"})
-  SendMessageW(controls[IdPolicy],CB_ADDSTRING,0,reinterpret_cast<LPARAM>(choice));
- SendMessageW(controls[IdPolicy],CB_SETCURSEL,0,0);
- place(h,L"BUTTON",L"Propagate deletions",BS_AUTOCHECKBOX|WS_TABSTOP,620,461,246,23,IdDeletes);
- SendMessageW(controls[IdDeletes],BM_SETCHECK,BST_CHECKED,0);
- button(h,L"Preview",IdPreview,320,505,244);
- button(h,L"Synchronize",IdExecute,575,505,291);
- button(h,L"Cancel operation",IdCancel,320,543,260);
- EnableWindow(controls[IdCancel],FALSE);
- place(h,L"BUTTON",L"Resume interrupted run (rescan + reconcile)",
-       BS_AUTOCHECKBOX|WS_TABSTOP,592,546,274,24,IdResume);
- label(h,L"Pending operations / conflicts (select a conflict)",320,586,540);
- place(h,L"LISTBOX",L"",WS_BORDER|WS_VSCROLL|WS_HSCROLL|LBS_NOTIFY,320,608,546,100,IdChanges);
- button(h,L"Keep left",IdKeepLeft,320,712,170);
- button(h,L"Keep right",IdKeepRight,500,712,170);
- button(h,L"Skip file",IdSkip,680,712,186);
- place(h,PROGRESS_CLASSW,L"",PBS_SMOOTH,320,750,546,18,IdProgress);
- place(h,L"STATIC",L"Ready",0,320,777,546,20,IdStatus);
+ place(h,PROGRESS_CLASSW,L"",PBS_SMOOTH,0,0,210,8,IdProgress);
+ place(h,L"STATIC",L"Ready",0,0,0,260,28,IdStatus);
+ place(h,L"STATIC",L"Preview uses actual engine decisions, never estimates.\n"
+  L"Use Preview before starting destructive operations.",
+  0,0,0,208,56,IdSummaryHint);
+ for(const auto& entry:{
+  std::pair{IdSummaryTotal,L"No preview yet"},
+  std::pair{IdSummaryCopies,L"Transfers  —"},
+  std::pair{IdSummaryUpdates,L"Updates  —"},
+  std::pair{IdSummaryDeletes,L"Deletions  —"},
+  std::pair{IdSummaryConflicts,L"Conflicts  —"}})
+  place(h,L"STATIC",entry.second,0,0,0,210,25,entry.first);
+ updateModeDescription();
+ reflowControls(h);
+}
+void updateModeDescription() {
+ if(!controls[IdConfigurationHint]||!controls[IdMirror])return;
+ const bool mirror=SendMessageW(controls[IdMirror],BM_GETCHECK,0,0)==BST_CHECKED;
+ set(IdConfigurationHint,mirror
+  ?L"Mirror keeps the source authoritative. Extra target files are removed.\n"
+   L"Continuous monitoring runs until you press Stop."
+  :L"Bidirectional synchronizes changes in both directions.\n"
+   L"Preview shows conflicts before files are modified.");
 }
 LRESULT CALLBACK windowProc(HWND window,UINT message,WPARAM w,LPARAM l){
  switch(message){
@@ -937,6 +1252,81 @@ LRESULT CALLBACK windowProc(HWND window,UINT message,WPARAM w,LPARAM l){
   mainWindow=window;
   try{initializeControls(window);}catch(const std::exception& e){MessageBoxA(window,e.what(),"Initialization failed",MB_ICONERROR);return -1;}
   return 0;
+ case WM_GETMINMAXINFO: {
+  auto* limits=reinterpret_cast<MINMAXINFO*>(l);
+  limits->ptMinTrackSize={890,540};
+  return 0;
+ }
+ case WM_SIZE:
+  if(controls[IdProfiles] && w!=SIZE_MINIMIZED)reflowControls(window);
+  return 0;
+ case WM_ERASEBKGND:return 1;
+ case WM_PAINT: {
+  PAINTSTRUCT paint{};
+  const HDC dc=BeginPaint(window,&paint);
+  const wchar_t* title=activeTab==MainTab::Configuration?L"Sync configuration":
+   activeTab==MainTab::Preview?L"Preview & conflicts":
+   activeTab==MainTab::History?L"History & recovery":L"Settings";
+  synchrorep::winui::ui_paint_frame(dc,mainLayout,title,busy,progressFraction);
+  for(int id:{IdName,IdLeft,IdRight,IdLeftUser,IdLeftPassword,
+              IdRightUser,IdRightPassword,IdKnownHosts}) {
+   if(controls[id] && IsWindowVisible(controls[id])) {
+    RECT frame{};
+    GetWindowRect(controls[id],&frame);
+    MapWindowPoints(HWND_DESKTOP,window,reinterpret_cast<POINT*>(&frame),2);
+    InflateRect(&frame,3,3);
+    synchrorep::winui::ui_paint_edit_frame(dc,frame);
+   }
+  }
+  EndPaint(window,&paint);
+  return 0;
+ }
+ case WM_MEASUREITEM: {
+  auto* item=reinterpret_cast<MEASUREITEMSTRUCT*>(l);
+  if(item->CtlID==IdProfiles){item->itemHeight=50;return TRUE;}
+  return FALSE;
+ }
+ case WM_DRAWITEM: {
+  const auto* item=reinterpret_cast<DRAWITEMSTRUCT*>(l);
+  if(item->CtlID==IdProfiles && item->CtlType==ODT_LISTBOX){
+   const auto index=item->itemID;
+   const std::wstring name=index<profiles.size()?
+    toWide(profiles[index].name):L"";
+   synchrorep::winui::ui_draw_profile(*item,name.c_str());
+   return TRUE;
+  }
+  if(item->CtlType==ODT_BUTTON) {
+   const auto id=static_cast<int>(item->CtlID);
+   const bool selected=(id==IdTabConfiguration && activeTab==MainTab::Configuration)||
+    (id==IdTabPreview && activeTab==MainTab::Preview)||
+    (id==IdTabHistory && activeTab==MainTab::History)||
+    (id==IdTabSettings && activeTab==MainTab::Settings)||
+    (id==IdSettingsNetwork && settingsPane==SettingsPane::Network)||
+    (id==IdSettingsBehavior && settingsPane==SettingsPane::Behavior)||
+    (id==IdModeBidirectional &&
+     SendMessageW(controls[IdMirror],BM_GETCHECK,0,0)!=BST_CHECKED)||
+    (id==IdModeMirror &&
+     SendMessageW(controls[IdMirror],BM_GETCHECK,0,0)==BST_CHECKED);
+   synchrorep::winui::ui_draw_button(*item,selected,id==IdExecute,
+                                     id==IdDelete||id==IdCancel);
+   return TRUE;
+  }
+  return FALSE;
+ }
+ case WM_CTLCOLOREDIT:
+ case WM_CTLCOLORLISTBOX: {
+  const HDC dc=reinterpret_cast<HDC>(w);
+  SetTextColor(dc,synchrorep::winui::color::white);
+  SetBkColor(dc,synchrorep::winui::color::input);
+  return reinterpret_cast<LRESULT>(synchrorep::winui::ui_input_brush());
+ }
+ case WM_CTLCOLORSTATIC:
+ case WM_CTLCOLORBTN: {
+  const HDC dc=reinterpret_cast<HDC>(w);
+  SetTextColor(dc,synchrorep::winui::color::white);
+  SetBkColor(dc,synchrorep::winui::color::card);
+  return reinterpret_cast<LRESULT>(synchrorep::winui::ui_card_brush());
+ }
  case WM_COMMAND:
   if(LOWORD(w)==IdProfiles&&HIWORD(w)!=LBN_SELCHANGE)return 0;
   if(LOWORD(w)==IdPolicy&&HIWORD(w)!=CBN_SELCHANGE)return 0;
@@ -1004,6 +1394,7 @@ LRESULT CALLBACK windowProc(HWND window,UINT message,WPARAM w,LPARAM l){
    else if(pending.message==synchrorep::winui::FinishedMessage)
     delete reinterpret_cast<synchrorep::winui::FinishedEvent*>(pending.lParam);
   }
+  synchrorep::winui::ui_cleanup();
   PostQuitMessage(0);
   return 0;
  }
@@ -1124,9 +1515,21 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int show){
  INITCOMMONCONTROLSEX init{sizeof(init),ICC_PROGRESS_CLASS};
  InitCommonControlsEx(&init);
  RegisterClassW(&wc);
- const wchar_t* title=L"Synchrorep - Settings";
- HWND window=CreateWindowW(wc.lpszClassName,title,WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|
-   WS_MINIMIZEBOX,CW_USEDEFAULT,CW_USEDEFAULT,900,850,nullptr,nullptr,instance,nullptr);
+ const wchar_t* title=L"Synchrorep";
+ RECT work{};SystemParametersInfoW(SPI_GETWORKAREA,0,&work,0);
+ const int availableW=work.right-work.left;
+ const int availableH=work.bottom-work.top;
+ const int width=std::min(1160,std::max(820,availableW-32));
+ const int height=std::min(720,std::max(510,availableH-65));
+ constexpr DWORD style=WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN;
+ RECT bounds{0,0,width,height};
+ AdjustWindowRectEx(&bounds,style,FALSE,0);
+ const int outerWidth=bounds.right-bounds.left;
+ const int outerHeight=bounds.bottom-bounds.top;
+ HWND window=CreateWindowW(wc.lpszClassName,title,style,
+   work.left+std::max(0,(availableW-outerWidth)/2),
+   work.top+std::max(0,(availableH-outerHeight)/2),
+   outerWidth,outerHeight,nullptr,nullptr,instance,nullptr);
  if(!window){CoUninitialize();return 1;}
  try{
   profiles=ProfileStore(appDirectory()/"profiles.dat").load();
@@ -1163,7 +1566,8 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int show){
    // Update Run paths if this executable was moved or upgraded.
    wchar_t module[32768]{};
    const auto length=GetModuleFileNameW(nullptr,module,32768);
-   if(length>0&&length<32768)
+   if(length>0&&length<32768 &&
+      GetEnvironmentVariableW(L"SYNCHROREP_UI_SMOKE",nullptr,0)==0)
     synchrorep::winui::synchronize_startup(profiles,module);
    if(!folder.empty()){
     beginExplorerSynchronization(window,folder);

@@ -14,6 +14,7 @@ Portage natif C++20 de [Synchrorep pour GNOME](https://github.com/sebk69/Synchro
 - Profils, secrets FTP/SFTP dans Windows Credential Manager, validation SFTP par `known_hosts`.
 - Sauvegarde des versions précédentes, journal de reprise et vérification SHA-256 avant les opérations destructives.
 - Blocage des profils miroirs qui utilisent des destinations identiques ou imbriquées.
+- **Interface Win32 sombre et adaptative** avec onglets Configuration, Preview, History et Settings ; configuration entièrement visible sur un écran 12 pouces, sans défilement.
 - Interface Win32, icône fournie, zone de notification, menu contextuel classique de l’Explorateur.
 - DLL `IExplorerCommand` et manifeste MSIX *sparse* pour préparer l’intégration au menu moderne Windows 11.
 
@@ -25,7 +26,7 @@ The project is preparing an application to SignPath Foundation. **Current builds
 
 ## Installation Windows
 
-Récupérer le fichier `synchrorep-windows-0.13.7-x64.msi` dans les
+Récupérer le fichier `synchrorep-windows-0.13.8-x64.msi` dans les
 [artefacts de la dernière compilation Windows](https://git.small-project.dev/pub/desktop/synchrorep-windows/-/jobs/artifacts/main/browse/build-win?job=windows-mingw).
 
 La CI Linux/MinGW construit désormais **l’unique édition complète** en utilisant
@@ -46,7 +47,7 @@ même `UpgradeCode` Windows Installer. Les profils restent dans
 ### Créer un miroir continu
 
 1. Sélectionner le dossier local **Left** comme source et l’emplacement **Right** comme cible.
-2. Cocher **Continuous local → target mirror**.
+2. Dans l'onglet **Configuration**, sélectionner **Continuous mirror**.
 3. Vérifier **Preview**, l’option de suppression et la protection des anciennes versions.
 4. Pour le démarrage automatique, cocher **Start at Windows login** et enregistrer.
 5. Laisser Synchrorep actif en zone de notification ou utiliser son menu pour arrêter la surveillance.
@@ -82,14 +83,16 @@ cmake -S . -B build-win -DSYNCHROREP_REMOTE=ON \
   -DSQLite3_LIBRARY="$PWD/build-msys2/win64/lib/libsqlite3.dll.a"
 cmake --build build-win --parallel
 python3 scripts/stage_windows_runtime.py --prefix build-msys2/win64 --build build-win
-python3 scripts/render_windows_installer.py --build build-win --version 0.13.7
+python3 scripts/render_windows_installer.py --build build-win --version 0.13.8
 python3 tests/windows_installer_test.py --build build-win
 ```
 
 Prérequis : CMake, MinGW-w64 x64 POSIX, Python 3, zstd et WiX `wixl`.
 La CI exécute ces opérations, fabrique le MSI et vérifie les protocoles FTP/SFTP
 sous Wine, ainsi que leurs transferts vers des serveurs de test locaux.
-Les tests natifs Windows 11/WSL2 sont manuels : aucun runner Windows n’est requis.
+Les tests natifs automatisés de compilation MSVC et d'interface Win32 sont
+exécutés sur Windows Server 2022/2025 via GitHub Actions.
+La validation visuelle et fonctionnelle Windows 11/WSL2 reste distincte.
 La [recette Windows 11](docs/windows11-manual-acceptance.md) est obligatoire
 avant toute déclaration de conformité Windows 11 ou GNOME.
 
@@ -138,10 +141,10 @@ L'exécutable Synchrorep dépend de DLL réseau, notamment `libcurl-4.dll`,
 
 Deux distributions complètes sont proposées :
 
-- `synchrorep-windows-0.13.7-x64.msi` : installation standard avec
+- `synchrorep-windows-0.13.8-x64.msi` : installation standard avec
   menu contextuel Explorer et toutes les DLL au même endroit
   (`C:\Program Files\Synchrorep`).
-- `synchrorep-windows-0.13.7-x64-portable.zip` : extraire **toute**
+- `synchrorep-windows-0.13.8-x64-portable.zip` : extraire **toute**
   l'archive dans un dossier avant d'exécuter `Synchrorep-0.13.4\synchrorep.exe`.
   Tous les fichiers DLL doivent rester à côté de l'exécutable.
 
@@ -177,7 +180,7 @@ L'option « miroir continu » reste distincte de la synchronisation
 bidirectionnelle par défaut et doit être activée explicitement.
 
 
-## Windows 0.13.7 : comparaison et fenetre de synchronisation
+## Windows 0.13.8 : comparaison et fenetre de synchronisation
 
 - Le dialogue natif Windows reste utilise pour choisir une destination. Il
   propose l'emplacement WSL \wsl.localhost lorsque Windows l'expose et

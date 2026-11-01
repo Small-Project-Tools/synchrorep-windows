@@ -1,12 +1,49 @@
 # Interface Windows — Synchrorep
 
-L'interface `windows/main.cpp` est une première reproduction **fonctionnelle** des fiches de configuration GNOME dans une fenêtre Win32. Elle ne prétend pas respecter encore la présentation visuelle de chaque dialogue GTK 2.
+## Interface sombre compacte (0.13.8)
+
+La fenêtre principale utilise un thème graphite/bleu, une disposition qui
+s'adapte à la largeur disponible et quatre onglets accessibles au clavier :
+
+- **Configuration** : sélection des profils, nom, source et destination
+  (local, WSL, FTP, SFTP), choix entre synchronisation bidirectionnelle et
+  miroir continu, options de sécurité (suppression, archives, Corbeille, hash).
+- **Preview** : liste des décisions du moteur et arbitrage des conflits
+  Keep left / Keep right / Skip avant exécution.
+- **History** : catalogue de restauration et journaux d'exécution.
+- **Settings** : connexions et secrets d'un côté, politique de conflits,
+  lancement automatique et menu Explorateur de l'autre.
+
+Le bandeau inférieur conserve Save profile, Preview, Start sync et Stop
+pendant la navigation. Le résumé affiche uniquement des décisions réelles
+issues de Preview ; les nombres « Updates » non déterminables sont laissés
+vides, sans simulation. Les options FTP/SFTP restent stockées dans Windows
+Credential Manager comme auparavant.
+
+La mise en page est testée sur 880×520, 1024×600 et d'autres résolutions.
+En dessous de 1100 px, le panneau récapitulatif est replié et l'état est
+affiché dans le bandeau inférieur. Aucun contrôle opérationnel n'est perdu.
+Les onglets sont des boutons natifs à rendu personnalisé : il n'y a pas
+de moteur Web ni de dépendance WebView.
+
+Les seuls modes implémentés par le moteur sont **bidirectionnel** et
+**miroir continu**. L'interface n'affiche pas un faux mode « one-way »,
+une planification ni une liste d'exclusions qui ne seraient pas exécutables.
+
+Les tests automatiques comprennent la géométrie (Linux/Windows),
+la navigation Win32 réelle en session isolée, la compilation MinGW,
+les tests sous Wine et les tests MSVC GitHub Actions. L'environnement
+de test ne modifie pas les profils personnels ni l'autostart Windows.
+
+Le contrôleur Win32 `windows/main.cpp` délègue la mise en page et le thème
+à `windows/ui_layout.cpp` et `windows/ui_theme.cpp`. Les comportements de
+synchronisation et les règles de sécurité du moteur restent inchangés.
 
 ## Configuration
 
 Une fiche comprend son nom, deux emplacements, un fichier `known_hosts` (SFTP), la stratégie générale en cas de conflit et l'option de propagation des suppressions. Le fichier `profiles.dat` conserve ces informations sans identifiants.
 
-La liste à gauche permet de sélectionner, créer, enregistrer ou effacer une fiche. Le bouton **Preview** affiche les opérations prévues (copies, suppressions, conflits). Le bouton **Synchronize** confirme les suppressions et bloque les conflits non résolus, conformément au moteur.
+La liste à gauche permet de sélectionner, créer, enregistrer ou effacer une fiche. Le bouton **Preview** affiche les opérations prévues (copies, suppressions, conflits). Le bouton **Start sync** confirme les suppressions et bloque les conflits non résolus, conformément au moteur.
 
 ## Connexions
 
@@ -20,7 +57,8 @@ La case **Explorer context menu** enregistre ou retire une clé dans `HKCU\Softw
 
 ## Limitations
 
-La synchronisation est maintenant lancee sur un thread de travail et la fenetre reste utilisable. Une barre indique l'avancement par phase; Cancel operation interrompt les requetes libcurl FTP/SFTP (les fichiers locaux sont controles entre fichiers). Keep left / Keep right / Skip file permettent de resoudre individuellement les conflits listes. Les groupes, le suivi d'octets, les dialogues GTK exacts et le menu moderne Windows 11 restent manquants. Voir docs/execution.md. Les contrôles ne sont pas encore soumis à des tests UI Windows automatisés.
+La synchronisation est maintenant lancee sur un thread de travail et la fenetre reste utilisable. Une barre indique l'avancement par phase; Cancel operation interrompt les requetes libcurl FTP/SFTP (les fichiers locaux sont controles entre fichiers). Keep left / Keep right / Skip file permettent de resoudre individuellement les conflits listes. Les groupes, le suivi d'octets, les dialogues GTK exacts et le menu moderne Windows 11 restent manquants. Voir docs/execution.md. Les principaux contrôles et onglets disposent désormais d'un test Win32
+isolé exécuté sur les runners Windows.
 
 ## Recuperation
 
