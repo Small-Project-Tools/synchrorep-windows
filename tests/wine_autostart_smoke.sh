@@ -55,7 +55,7 @@ rm "$source/new-file.txt"
 wait_condition "Source deletion mirrored" 'test ! -e "$target/new-file.txt"'
 grep -q '"event":"committed"' "$state_dir/logs/$key.state.jsonl"
 echo "PASS: Execution log committed"
-if test -f "$state_dir/$key.state.journal"; then
- echo "FAIL: Pending recovery journal" >&2; exit 1
-fi
-echo "PASS: No pending journal after completed cycles"
+# Target deletion is observable before the engine has finalized its journal.
+# Wait for commit cleanup instead of racing the asynchronous mirror worker.
+WAIT_ATTEMPTS=130
+wait_condition "No pending journal after completed cycles" 'test ! -f "$state_dir/$key.state.journal"'
