@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Sébastien Kus
+# SPDX-License-Identifier: GPL-3.0-only
 cmake_minimum_required(VERSION 3.20)
 project(synchrorep_windows VERSION 0.13.8 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
