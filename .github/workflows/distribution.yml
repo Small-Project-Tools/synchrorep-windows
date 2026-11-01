@@ -99,7 +99,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          export WINEPREFIX="$GITHUB_WORKSPACE/wine-ci" WINEDEBUG=-all
+          # GitHub mounts the checkout with a different owner inside containers.
+          # Wine refuses prefixes under an unowned parent (including GITHUB_WORKSPACE).
+          export WINEPREFIX="$(mktemp -d /tmp/synchrorep-wine.XXXXXX)" WINEDEBUG=-all
+          test -O "$WINEPREFIX"
+          trap 'rm -rf "$WINEPREFIX"' EXIT
           test -s build-win/windows_transport_tests.exe
           test -s build-win/synchrorep.exe
           test -s build-win/SynchrorepExplorer.dll
