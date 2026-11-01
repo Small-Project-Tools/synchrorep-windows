@@ -71,9 +71,18 @@ void visible(HWND window,int id,bool expected) {
  GetWindowRect(child,&bounds);
  MapWindowPoints(HWND_DESKTOP,window,reinterpret_cast<POINT*>(&bounds),2);
  GetClientRect(window,&client);
- require(bounds.left>=0 && bounds.top>=0 &&
-         bounds.right<=client.right && bounds.bottom<=client.bottom,
-         "Visible control does not fit the compact client area");
+ if(!(bounds.left>=0 && bounds.top>=0 &&
+      bounds.right<=client.right && bounds.bottom<=client.bottom)) {
+  throw std::runtime_error(
+    "Visible control "+std::to_string(id)+
+    " outside compact client: bounds=["+
+    std::to_string(bounds.left)+","+
+    std::to_string(bounds.top)+","+
+    std::to_string(bounds.right)+","+
+    std::to_string(bounds.bottom)+
+    "], client=["+std::to_string(client.right)+","+
+    std::to_string(client.bottom)+"]");
+ }
 }
 }
 
@@ -97,7 +106,8 @@ int main() {
   SetEnvironmentVariableW(L"LOCALAPPDATA",isolated.c_str());
   SetEnvironmentVariableW(L"SYNCHROREP_UI_SMOKE",L"1");
 
-  STARTUPINFOW startup{sizeof(startup)};
+  STARTUPINFOW startup{};
+  startup.cb=sizeof(startup);
   std::wstring command=L"\""+executable.wstring()+L"\"";
   const BOOL started=CreateProcessW(nullptr,command.data(),nullptr,nullptr,
                     FALSE,0,nullptr,executable.parent_path().c_str(),
@@ -120,13 +130,41 @@ int main() {
   require(SetWindowPos(app,nullptr,0,0,990,610,
     SWP_NOMOVE|SWP_NOZORDER|SWP_SHOWWINDOW|SWP_ASYNCWINDOWPOS)!=FALSE,
     "Cannot resize isolated UI");
-  Sleep(300);
-
-  visible(app,IdProfiles,true);
-  visible(app,IdName,true);
-  visible(app,IdSave,true);
-  visible(app,IdChanges,false);
-  visible(app,IdOpenRecovery,false);
+  // SWP_ASYNCWINDOWPOS schedules the resize on the GUI thread, which may
+  // still be initializing on a loaded Windows 11 desktop. Poll until the
+  // requested size AND the child layout settle rather than assuming 300 ms.
+  // Keep a finite deadline and preserve exact geometry on a real defect.
+  bool layoutReady=false;
+  std::string layoutFailure="window resize not processed";
+  for(int attempt=0;attempt<100;++attempt) {
+   if(WaitForSingleObject(process.hProcess,0)!=WAIT_TIMEOUT)
+    throw std::runtime_error("GUI exited during compact resize");
+   RECT frame{};
+   if(!GetWindowRect(app,&frame))
+    throw std::runtime_error("Cannot read resized window rectangle");
+   const int frameWidth=frame.right-frame.left;
+   const int frameHeight=frame.bottom-frame.top;
+   if(frameWidth!=990 || frameHeight!=610) {
+    layoutFailure="requested 990x610, current outer window is "+
+      std::to_string(frameWidth)+"x"+std::to_string(frameHeight);
+    Sleep(50);
+    continue;
+   }
+   try {
+    visible(app,IdProfiles,true);
+    visible(app,IdName,true);
+    visible(app,IdSave,true);
+    visible(app,IdChanges,false);
+    visible(app,IdOpenRecovery,false);
+    layoutReady=true;
+    break;
+   }catch(const std::exception& ex) {
+    layoutFailure=ex.what();
+    Sleep(50);
+   }
+  }
+  if(!layoutReady)
+   throw std::runtime_error("Compact layout did not settle: "+layoutFailure);
 
   std::cerr<<"UI smoke: testing navigation and sync mode\n";
   click(app,IdModeMirror);
