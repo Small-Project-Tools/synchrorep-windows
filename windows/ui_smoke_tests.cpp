@@ -43,11 +43,23 @@ HWND findApp(DWORD pid) {
  EnumWindows(findWindow,reinterpret_cast<LPARAM>(&state));
  return state.found;
 }
+LRESULT safeMessage(HWND target,UINT message,WPARAM w,LPARAM l,
+                    const char* operation) {
+ DWORD_PTR response=0;
+ SetLastError(ERROR_SUCCESS);
+ const LRESULT sent=SendMessageTimeoutW(
+  target,message,w,l,SMTO_ABORTIFHUNG|SMTO_ERRORONEXIT,3000,&response);
+ if(!sent)
+  throw std::runtime_error(std::string("GUI message timed out: ")+operation+
+    " (Windows error "+std::to_string(GetLastError())+")");
+ return static_cast<LRESULT>(response);
+}
 void click(HWND window,int id) {
  HWND control=GetDlgItem(window,id);
  require(control!=nullptr,"UI button is missing");
- SendMessageW(window,WM_COMMAND,MAKEWPARAM(id,BN_CLICKED),
-              reinterpret_cast<LPARAM>(control));
+ safeMessage(window,WM_COMMAND,MAKEWPARAM(id,BN_CLICKED),
+             reinterpret_cast<LPARAM>(control),
+             ("button "+std::to_string(id)).c_str());
 }
 void visible(HWND window,int id,bool expected) {
  HWND child=GetDlgItem(window,id);
@@ -104,8 +116,11 @@ int main() {
    Sleep(50);
   }
   require(app!=nullptr,"Synchrorep main window did not appear");
-  SetWindowPos(app,nullptr,0,0,990,610,SWP_NOMOVE|SWP_NOZORDER|SWP_SHOWWINDOW);
-  Sleep(200);
+  std::cerr<<"UI smoke: main window created\n";
+  require(SetWindowPos(app,nullptr,0,0,990,610,
+    SWP_NOMOVE|SWP_NOZORDER|SWP_SHOWWINDOW|SWP_ASYNCWINDOWPOS)!=FALSE,
+    "Cannot resize isolated UI");
+  Sleep(300);
 
   visible(app,IdProfiles,true);
   visible(app,IdName,true);
@@ -113,11 +128,14 @@ int main() {
   visible(app,IdChanges,false);
   visible(app,IdOpenRecovery,false);
 
+  std::cerr<<"UI smoke: testing navigation and sync mode\n";
   click(app,IdModeMirror);
-  require(SendMessageW(GetDlgItem(app,IdMirror),BM_GETCHECK,0,0)==BST_CHECKED,
+  require(safeMessage(GetDlgItem(app,IdMirror),BM_GETCHECK,0,0,
+                      "mirror state")==BST_CHECKED,
           "Mirror segment did not set persisted mirror mode");
   click(app,IdModeBidirectional);
-  require(SendMessageW(GetDlgItem(app,IdMirror),BM_GETCHECK,0,0)==BST_UNCHECKED,
+  require(safeMessage(GetDlgItem(app,IdMirror),BM_GETCHECK,0,0,
+                      "bidirectional state")==BST_UNCHECKED,
           "Bidirectional segment did not restore default mode");
 
   click(app,IdTabPreview);
@@ -145,14 +163,17 @@ int main() {
   require(!fs::exists(isolated/"Synchrorep"/"profiles.dat"),
           "Tab navigation unexpectedly created a synchronization profile");
 
+  std::cerr<<"UI smoke: navigation passed, starting preview\n";
   // Exercise a real preview through the asynchronous GUI pipeline, without
   // mutating either source or destination. It also opens the themed progress
   // window and transitions to the Preview tab automatically on completion.
   fs::create_directories(isolated/"source");
   fs::create_directories(isolated/"target");
   std::ofstream(isolated/"source"/"readme.txt")<<"UI preview file";
-  SetWindowTextW(GetDlgItem(app,IdLeft),(isolated/"source").c_str());
-  SetWindowTextW(GetDlgItem(app,IdRight),(isolated/"target").c_str());
+  safeMessage(GetDlgItem(app,IdLeft),WM_SETTEXT,0,
+    reinterpret_cast<LPARAM>((isolated/"source").c_str()),"source input");
+  safeMessage(GetDlgItem(app,IdRight),WM_SETTEXT,0,
+    reinterpret_cast<LPARAM>((isolated/"target").c_str()),"destination input");
   click(app,IdPreview);
   bool previewComplete=false;
   for(int attempt=0;attempt<400;++attempt) {
@@ -170,10 +191,12 @@ int main() {
   }
   require(previewComplete,"Asynchronous preview did not complete");
   visible(app,IdChanges,true);
-  require(SendMessageW(GetDlgItem(app,IdChanges),LB_GETCOUNT,0,0)>=1,
+  require(safeMessage(GetDlgItem(app,IdChanges),LB_GETCOUNT,0,0,
+                      "preview operation count")>=1,
           "Preview did not list the source file");
   require(!fs::exists(isolated/"target"/"readme.txt"),
           "Preview incorrectly modified the destination");
+  std::cerr<<"UI smoke: preview passed; closing GUI\n";
   PostMessageW(app,WM_CLOSE,0,0);
   require(WaitForSingleObject(process.hProcess,7000)==WAIT_OBJECT_0,
           "Closing the GUI did not terminate the process");
