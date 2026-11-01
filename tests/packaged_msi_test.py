@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Sébastien Kus
+# SPDX-License-Identifier: GPL-3.0-only
 """Validate runtime DLLs in the actual compiled MSI, not only its WiX source."""
 import argparse
 from pathlib import Path

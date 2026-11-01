@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Sébastien Kus
+// SPDX-License-Identifier: GPL-3.0-only
 // Debug assertions must report to stderr instead of blocking a headless CI
 // runner with the Visual C++ assertion dialog.
 #if defined(_MSC_VER) && defined(_DEBUG)

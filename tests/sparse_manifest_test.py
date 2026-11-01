@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Sébastien Kus
+# SPDX-License-Identifier: GPL-3.0-only
 """Static consistency checks for the Windows 11 sparse MSIX command package."""
 import re
 import struct
