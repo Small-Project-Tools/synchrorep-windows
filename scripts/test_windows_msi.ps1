@@ -29,6 +29,12 @@ try {
   foreach ($file in @($exe, $explorer, (Join-Path $installDir 'LICENSE'), (Join-Path $installDir 'THIRD_PARTY_NOTICES.txt'))) {
     if (-not (Test-Path $file -PathType Leaf)) { throw "Expected installed file missing: $file" }
   }
+  foreach ($dll in @('libcurl-4.dll', 'libssh2-1.dll', 'libsqlite3-0.dll')) {
+    $installedDll = Join-Path $installDir $dll
+    if (-not (Test-Path -LiteralPath $installedDll -PathType Leaf)) {
+      throw "Required bundled runtime DLL missing: $dll"
+    }
+  }
   & (Join-Path $PSScriptRoot 'check_windows_runtime.ps1') -ExecutablePath $exe
   foreach ($reg in @(
     'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Classes\Directory\shell\Synchrorep',
@@ -41,7 +47,10 @@ try {
 finally {
   if ($installed) {
     Invoke-Msi "/x `"$resolved`" /qn /norestart /L*v `"$logDir/uninstall.log`"" 'Uninstall'
-    if (Test-Path $exe) { throw "Application remains after uninstall: $exe" }
+    foreach ($file in @($exe, $explorer, (Join-Path $installDir 'libcurl-4.dll'),
+        (Join-Path $installDir 'libssh2-1.dll'), (Join-Path $installDir 'libsqlite3-0.dll'))) {
+      if (Test-Path -LiteralPath $file) { throw "File remains after uninstall: $file" }
+    }
     foreach ($reg in @(
       'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Classes\Directory\shell\Synchrorep',
       'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Classes\Drive\shell\Synchrorep',

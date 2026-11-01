@@ -140,3 +140,14 @@ if(SQLite3_FOUND)
  target_link_libraries(sqlite_history_tests PRIVATE synchrorep_engine)
  add_test(NAME sqlite_history_tests COMMAND sqlite_history_tests)
 endif()
+
+# Only the native test executables receive the headless assertion handler.
+# Product binaries and public builds remain unaffected.
+if(MSVC)
+ get_property(native_test_names DIRECTORY PROPERTY TESTS)
+ foreach(test_name IN LISTS native_test_names)
+  if(TARGET "${test_name}")
+   target_sources("${test_name}" PRIVATE tests/msvc_headless_assertions.cpp)
+  endif()
+ endforeach()
+endif()

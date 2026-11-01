@@ -93,39 +93,18 @@ jobs:
 
   msi-smoke:
     name: GitLab MSI installation / Windows 2025
-    if: ${{ vars.SYNCHROREP_MSI_CI_ENABLED == 'true' }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs: native
     runs-on: windows-2025
     timeout-minutes: 25
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - name: Download GitLab CI MSI for checked-out version
+      - name: Download verified GitLab MSI from matching source tree
         shell: pwsh
-        env:
-          GITLAB_ARTIFACT_TOKEN: ${{ secrets.GITLAB_ARTIFACT_TOKEN }}
         run: |
-          $cmake = Get-Content CMakeLists.txt -Raw
-          if ($cmake -notmatch 'project\(synchrorep_windows VERSION (\d+\.\d+\.\d+)') {
-            throw 'Cannot determine Synchrorep version'
-          }
-          $version = $Matches[1]
-          $filename = "synchrorep-windows-$version-x64.msi"
-          $url = "https://git.small-project.dev/api/v4/projects/665/jobs/artifacts/main/raw/build-win/$filename?job=windows-mingw"
-          $target = Join-Path $env:RUNNER_TEMP 'synchrorep.msi'
-          $headers = @{}
-          if ($env:GITLAB_ARTIFACT_TOKEN) { $headers['PRIVATE-TOKEN'] = $env:GITLAB_ARTIFACT_TOKEN }
-          try {
-            Invoke-WebRequest -Uri $url -Headers $headers -OutFile $target -MaximumRedirection 3
-          } catch {
-            throw "GitLab MSI artifact download failed. Check CI artifact permissions and SYNCHROREP_MSI_CI_ENABLED: $($_.Exception.Message)"
-          }
-          $item = Get-Item $target
-          if ($item.Length -lt 100000) { throw "MSI is missing or suspiciously small ($($item.Length) bytes)" }
-          $firstBytes = [IO.File]::ReadAllBytes($target)[0..7]
-          if ([Convert]::ToHexString($firstBytes) -ne 'D0CF11E0A1B11AE1') { throw 'Downloaded artifact is not an MSI' }
-          Write-Output "MSI $filename downloaded; SHA256:"
-          Get-FileHash $target -Algorithm SHA256 | Format-List
+          ./scripts/fetch_gitlab_msi.ps1 -OutputPath "$env:RUNNER_TEMP/synchrorep.msi"
       - name: Install, verify and uninstall MSI
         shell: pwsh
         run: |

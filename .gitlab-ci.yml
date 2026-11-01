@@ -52,6 +52,10 @@ windows-mingw:
   paths:
    - build-win/synchrorep-windows-0.13.6-x64.msi
    - build-win/synchrorep-windows-0.13.6-x64-portable.zip
+   # Required by windows-wine-smoke: CI job workspaces are isolated.
+   - build-win/*.exe
+   - build-win/*.dll
+   - build-win/windows-dlls.txt
 
 # Optional MSVC cross-check: same features, no separate "full" product/MSI.
 windows-msvc-validation:
@@ -94,6 +98,11 @@ windows-wine-smoke:
  script:
   - export WINEPREFIX="$CI_PROJECT_DIR/wine-ci"
   - export WINEDEBUG=-all
+  - test -s build-win/windows_transport_tests.exe
+  - test -s build-win/synchrorep.exe
+  - test -s build-win/SynchrorepExplorer.dll
+  - test -s build-win/windows-dlls.txt
+  - for dll in $(cat build-win/windows-dlls.txt); do test -s "build-win/$dll"; done
   - xvfb-run -a wineboot -u
   - xvfb-run -a wine build-win/windows_transport_tests.exe
   - xvfb-run -a wine build-win/explorer_launch_tests.exe

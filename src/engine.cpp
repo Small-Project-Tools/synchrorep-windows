@@ -371,9 +371,21 @@ std::vector<Decision> build(const Snapshot& l,const Snapshot& r,
  }
  return out;
 }
+bool same_path_component(const fs::path& left,const fs::path& right){
+#ifdef _WIN32
+ // Windows paths are case insensitive, including drive letters; std::path
+ // operator== is lexical and cannot be used for this safety boundary.
+ const auto a=left.native(),b=right.native();
+ const auto result=CompareStringOrdinal(a.c_str(),-1,b.c_str(),-1,TRUE);
+ if(result==0)throw std::runtime_error("Cannot compare Windows path components");
+ return result==CSTR_EQUAL;
+#else
+ return left==right;
+#endif
+}
 bool is_nested(const fs::path& a,const fs::path& b){
  auto i=a.begin(),j=b.begin();
- while(i!=a.end()&&j!=b.end()&&*i==*j){++i;++j;}
+ while(i!=a.end()&&j!=b.end()&&same_path_component(*i,*j)){++i;++j;}
  return i==a.end()||j==b.end();
 }
 void ensure_distinct(const Endpoint& left,const Endpoint& right,const fs::path& state) {
@@ -383,7 +395,7 @@ void ensure_distinct(const Endpoint& left,const Endpoint& right,const fs::path& 
  if(l&&r){
   auto a=fs::weakly_canonical(l->root()),b=fs::weakly_canonical(r->root());
   if(is_nested(a,b))throw std::runtime_error("Nested synchronization directories are unsafe");
-  auto s=fs::absolute(state).lexically_normal();
+  auto s=fs::weakly_canonical(state);
   if(is_nested(a,s)||is_nested(b,s))throw std::runtime_error("History must be outside synchronized directories");
  }
 }

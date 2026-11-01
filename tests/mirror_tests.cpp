@@ -7,6 +7,13 @@
 #include <future>
 #include <iostream>
 #include <thread>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 using namespace synchrorep;
 namespace {
 void write(const fs::path& path,const std::string& text){
@@ -23,7 +30,20 @@ void write_atomic(const fs::path& path,const std::string& text){
    "synchrorep-editor-"+std::to_string(
     std::chrono::steady_clock::now().time_since_epoch().count())+".tmp");
  write(temporary,text);
+#ifdef _WIN32
+ // Windows rename() cannot replace an existing destination. Exercise the
+ // same atomic replacement contract that real Windows editors provide.
+ for(int attempt=0;attempt<50;++attempt){
+  if(ReplaceFileW(path.c_str(),temporary.c_str(),nullptr,0,nullptr,nullptr))return;
+  const auto error=GetLastError();
+  if(error!=ERROR_SHARING_VIOLATION && error!=ERROR_ACCESS_DENIED)
+   throw std::runtime_error("Windows atomic editor replace failed: "+std::to_string(error));
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+ }
+ throw std::runtime_error("Windows atomic editor replace remained locked");
+#else
  fs::rename(temporary,path);
+#endif
 }
 std::string read(const fs::path& path){
  std::ifstream in(path,std::ios::binary);
