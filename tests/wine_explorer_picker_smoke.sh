@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (C) 2026 Sébastien Kus
+# SPDX-License-Identifier: GPL-3.0-only
 # Real GUI regression: context-menu invocation opens folder picker directly.
 # Cancellation must not save a profile or synchronize anything.
 set -euo pipefail

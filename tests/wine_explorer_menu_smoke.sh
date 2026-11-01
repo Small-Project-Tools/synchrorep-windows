@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (C) 2026 Sébastien Kus
+# SPDX-License-Identifier: GPL-3.0-only
 # Verify machine-scoped classic Explorer commands in the actually installed MSI.
 set -euo pipefail
 : "${WINEPREFIX:?Wine prefix required}"

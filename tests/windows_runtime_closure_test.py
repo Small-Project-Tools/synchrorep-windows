@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Sébastien Kus
+# SPDX-License-Identifier: GPL-3.0-only
 """The MSI must include transitive imports of both the app and Explorer COM DLL."""
 import importlib.util
 import tempfile
