@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Sébastien Kus
+# SPDX-License-Identifier: GPL-3.0-only
 """Validate the single, complete WiX3 MSI template (Linux CI)."""
 import re
 import xml.etree.ElementTree as ET
