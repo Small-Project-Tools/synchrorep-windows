@@ -13,14 +13,16 @@ if ($LASTEXITCODE -ne 0 -or $expectedTree -notmatch '^[0-9a-f]{40}$') {
 $tempRoot = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTempPath() }
 $source = Join-Path $tempRoot "synchrorep-gitlab-source-$PID"
 try {
-  & git clone --quiet --depth 1 --branch main $gitlabRepository $source
+  & git clone --quiet --depth 100 --branch main $gitlabRepository $source
   if ($LASTEXITCODE -ne 0) { throw 'Failed to fetch the canonical GitLab source tree' }
-  $actualTree = (& git -C $source rev-parse 'HEAD^{tree}').Trim()
-  $gitlabSha = (& git -C $source rev-parse HEAD).Trim()
-  if ($LASTEXITCODE -ne 0) { throw 'Failed to resolve the canonical GitLab commit' }
-  if ($actualTree -ne $expectedTree) {
-    throw "GitLab and GitHub source trees differ (GitHub $expectedTree, GitLab $actualTree); refusing to test a potentially stale MSI"
+  $history = & git -C $source log --format='%H %T' -n 100
+  if ($LASTEXITCODE -ne 0) { throw 'Cannot read canonical GitLab commit history' }
+  $matchingCommit = @($history | Where-Object { ($_ -split ' ')[1] -eq $expectedTree } | Select-Object -First 1)
+  if ($matchingCommit.Count -eq 0) {
+    throw "No GitLab commit with Git tree $expectedTree found in the latest 100 commits; refusing a mismatched MSI"
   }
+  $gitlabSha = ($matchingCommit[0] -split ' ')[0]
+  $actualTree = $expectedTree
   $cmake = Get-Content -LiteralPath (Join-Path $workspace 'CMakeLists.txt') -Raw
   if ($cmake -notmatch 'project\(synchrorep_windows VERSION ([0-9]+\.[0-9]+\.[0-9]+)') {
     throw 'Cannot determine the Synchrorep version'
