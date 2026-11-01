@@ -69,13 +69,14 @@ jobs:
             if (-not (Test-Path $file)) { throw "Missing expected binary: $file" }
             Get-FileHash $file -Algorithm SHA256 | Format-List
           }
-          & $exe --check-runtime
-          if ($LASTEXITCODE -ne 0) { throw 'Runtime self-check failed' }
-
       - name: Execute native CTest suite
         run: |
           ctest --test-dir build-msvc -C Debug --output-on-failure --timeout 120
           if ($LASTEXITCODE -ne 0) { throw 'Native Windows tests failed' }
+
+      - name: Verify GUI executable runtime
+        run: |
+          ./scripts/check_windows_runtime.ps1 -ExecutablePath 'build-msvc/Debug/synchrorep.exe'
 
       - name: Preserve diagnostics on failure
         if: failure()

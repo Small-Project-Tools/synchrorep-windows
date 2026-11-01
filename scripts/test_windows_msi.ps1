@@ -29,8 +29,7 @@ try {
   foreach ($file in @($exe, $explorer, (Join-Path $installDir 'LICENSE'), (Join-Path $installDir 'THIRD_PARTY_NOTICES.txt'))) {
     if (-not (Test-Path $file -PathType Leaf)) { throw "Expected installed file missing: $file" }
   }
-  & $exe --check-runtime
-  if ($LASTEXITCODE -ne 0) { throw "Installed executable self-test failed: $LASTEXITCODE" }
+  & (Join-Path $PSScriptRoot 'check_windows_runtime.ps1') -ExecutablePath $exe
   foreach ($reg in @(
     'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Classes\Directory\shell\Synchrorep',
     'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Classes\Drive\shell\Synchrorep',
