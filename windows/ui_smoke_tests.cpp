@@ -163,7 +163,11 @@ int main() {
   require(!fs::exists(isolated/"Synchrorep"/"profiles.dat"),
           "Tab navigation unexpectedly created a synchronization profile");
 
-  std::cerr<<"UI smoke: navigation passed, starting preview\n";
+  std::cerr<<"UI smoke: navigation passed\n";
+  const bool interactivePreview=
+   GetEnvironmentVariableW(L"SYNCHROREP_INTERACTIVE_UI_PREVIEW",nullptr,0)>0;
+  if(interactivePreview) {
+  std::cerr<<"UI smoke: starting interactive preview\n";
   // Exercise a real preview through the asynchronous GUI pipeline, without
   // mutating either source or destination. It also opens the themed progress
   // window and transitions to the Preview tab automatically on completion.
@@ -196,7 +200,11 @@ int main() {
           "Preview did not list the source file");
   require(!fs::exists(isolated/"target"/"readme.txt"),
           "Preview incorrectly modified the destination");
-  std::cerr<<"UI smoke: preview passed; closing GUI\n";
+  std::cerr<<"UI smoke: preview passed\n";
+  }else {
+   std::cerr<<"UI smoke: interactive preview reserved for Wine/Windows desktop\n";
+  }
+  std::cerr<<"UI smoke: closing GUI\n";
   PostMessageW(app,WM_CLOSE,0,0);
   require(WaitForSingleObject(process.hProcess,7000)==WAIT_OBJECT_0,
           "Closing the GUI did not terminate the process");

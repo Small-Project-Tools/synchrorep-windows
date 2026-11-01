@@ -105,7 +105,11 @@ windows-wine-smoke:
   - for dll in $(cat build-win/windows-dlls.txt); do test -s "build-win/$dll"; done
   - xvfb-run -a wineboot -u
   - xvfb-run -a wine build-win/windows_transport_tests.exe
+  # Windows Server runners are non-interactive; Wine has an X desktop and can
+  # exercise actual Preview without leaving a blocking modal dialog in CI.
+  - export SYNCHROREP_INTERACTIVE_UI_PREVIEW=1
   - xvfb-run -a wine build-win/synchrorep_ui_tests.exe
+  - unset SYNCHROREP_INTERACTIVE_UI_PREVIEW
   # Regression suites intentionally avoid the interactive Windows Shell recycler.
   # Do not run mirror_tests under Wine: the Wine winpthreads implementation
   # cannot reliably execute std::async; native Windows CI runs that test.

@@ -32,7 +32,11 @@ une planification ni une liste d'exclusions qui ne seraient pas exécutables.
 
 Les tests automatiques comprennent la géométrie (Linux/Windows),
 la navigation Win32 réelle en session isolée, la compilation MinGW,
-les tests sous Wine et les tests MSVC GitHub Actions. L'environnement
+les tests sous Wine et les tests MSVC GitHub Actions. En session CI non
+interactive, le test de navigation vérifie les onglets et le mode ; le
+scénario de prévisualisation réelle s'exécute dans la session X de Wine
+et sur Windows 11 interactif pour éviter les dialogues modaux bloquants.
+L'environnement
 de test ne modifie pas les profils personnels ni l'autostart Windows.
 
 Le contrôleur Win32 `windows/main.cpp` délègue la mise en page et le thème
