@@ -1,0 +1,4 @@
+LIBRARY SynchrorepExplorer
+EXPORTS
+    DllGetClassObject
+    DllCanUnloadNow

@@ -4,11 +4,17 @@
 #include <algorithm>
 #include <chrono>
 #include <fstream>
+#include <cstdint>
+#include <limits>
 #include <regex>
 #include <stdexcept>
 #include <string_view>
 #include <system_error>
 #ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #endif
 
@@ -25,9 +31,55 @@ bool valid_relative(const std::string& relative) {
  if(relative.find('\\')!=std::string::npos)return false;
  return true;
 }
+#ifdef _WIN32
+// FILETIME stores 100 ns ticks since 1601-01-01 UTC. Windows' filesystem
+// clock does not expose C++20 to_sys/from_sys in every MSVC version.
+constexpr std::uint64_t windows_ticks_per_second = 10000000ULL;
+constexpr std::int64_t windows_to_unix_seconds = 11644473600LL;
 std::int64_t timestamp(const fs::path& p) {
- return std::chrono::duration_cast<std::chrono::seconds>(fs::file_time_type::clock::to_sys(fs::last_write_time(p)).time_since_epoch()).count();
+ WIN32_FILE_ATTRIBUTE_DATA data{};
+ if(!GetFileAttributesExW(p.c_str(),GetFileExInfoStandard,&data))
+  throw fs::filesystem_error("Cannot read file timestamp",p,
+   std::error_code(GetLastError(),std::system_category()));
+ ULARGE_INTEGER ticks{};
+ ticks.LowPart=data.ftLastWriteTime.dwLowDateTime;
+ ticks.HighPart=data.ftLastWriteTime.dwHighDateTime;
+ return static_cast<std::int64_t>(ticks.QuadPart/windows_ticks_per_second)
+  -windows_to_unix_seconds;
 }
+void restore_timestamp(const fs::path& p,std::int64_t modified) {
+ constexpr auto max_seconds=static_cast<std::int64_t>(
+  std::numeric_limits<std::uint64_t>::max()/windows_ticks_per_second);
+ if(modified < -windows_to_unix_seconds ||
+    modified > max_seconds-windows_to_unix_seconds)
+  throw std::out_of_range("File timestamp is outside the Windows FILETIME range");
+ ULARGE_INTEGER ticks{};
+ ticks.QuadPart=static_cast<std::uint64_t>(modified+windows_to_unix_seconds)
+  *windows_ticks_per_second;
+ FILETIME value{ticks.LowPart,ticks.HighPart};
+ const HANDLE file=CreateFileW(p.c_str(),FILE_WRITE_ATTRIBUTES,
+  FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,
+  FILE_ATTRIBUTE_NORMAL,nullptr);
+ if(file==INVALID_HANDLE_VALUE)
+  throw fs::filesystem_error("Cannot open file to restore timestamp",p,
+   std::error_code(GetLastError(),std::system_category()));
+ const BOOL success=SetFileTime(file,nullptr,nullptr,&value);
+ const DWORD error=success?ERROR_SUCCESS:GetLastError();
+ CloseHandle(file);
+ if(!success)
+  throw fs::filesystem_error("Cannot restore file timestamp",p,
+   std::error_code(error,std::system_category()));
+}
+#else
+std::int64_t timestamp(const fs::path& p) {
+ return std::chrono::duration_cast<std::chrono::seconds>(
+  fs::file_time_type::clock::to_sys(fs::last_write_time(p)).time_since_epoch()).count();
+}
+void restore_timestamp(const fs::path& p,std::int64_t modified) {
+ fs::last_write_time(p,fs::file_time_type::clock::from_sys(
+  std::chrono::system_clock::time_point{std::chrono::seconds(modified)}));
+}
+#endif
 Entry stat(const fs::path& path) {
  std::error_code ec;
  auto s=fs::symlink_status(path,ec);
@@ -101,7 +153,7 @@ void LocalEndpoint::write(const std::string& relative,std::istream& input,const 
   if(fs::file_size(tmp)!=source.size)throw std::runtime_error("Transfer size mismatch: "+relative);
   atomic_replace(tmp,target);
   // Preserve native mtime for local-local and WSL UNC transfers.
-  fs::last_write_time(target,fs::file_time_type::clock::from_sys(std::chrono::system_clock::time_point{std::chrono::seconds(source.modified)}));
+  restore_timestamp(target,source.modified);
  } catch(...) {std::error_code ignored;fs::remove(tmp,ignored);throw;}
 }
 void LocalEndpoint::make_directory(const std::string& relative){fs::create_directories(within(relative));}

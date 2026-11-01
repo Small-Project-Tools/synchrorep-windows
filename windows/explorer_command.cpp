@@ -175,7 +175,7 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE module,DWORD reason,LPVOID){
  }
  return TRUE;
 }
-extern "C" __declspec(dllexport) HRESULT WINAPI DllGetClassObject(
+STDAPI DllGetClassObject(
  REFCLSID clsid,REFIID iid,void** result){
  if(!result)return E_POINTER;
  *result=nullptr;
@@ -186,6 +186,6 @@ extern "C" __declspec(dllexport) HRESULT WINAPI DllGetClassObject(
  factory->Release();
  return status;
 }
-extern "C" __declspec(dllexport) HRESULT WINAPI DllCanUnloadNow(){
+STDAPI DllCanUnloadNow(){
  return g_objects.load()==0&&g_locks.load()==0?S_OK:S_FALSE;
 }

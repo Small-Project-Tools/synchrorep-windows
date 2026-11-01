@@ -1,11 +1,9 @@
 #include "synchrorep/mirror_monitor.hpp"
+#include <algorithm>
 #include <chrono>
 #include <map>
 #include <stdexcept>
 #include <thread>
-#ifdef _WIN32
-#include <windows.h>
-#endif
 
 namespace synchrorep {
 namespace {
