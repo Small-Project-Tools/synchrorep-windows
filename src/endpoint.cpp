@@ -105,7 +105,31 @@ std::string native_identity(const fs::path& root) {
  return "file:"+std::string(u8.begin(),u8.end());
 }
 }
-LocalEndpoint::LocalEndpoint(fs::path root) : root_(fs::absolute(std::move(root)).lexically_normal()) {
+// MinGW's std::filesystem::absolute() can treat a valid UNC path as relative
+// and prefix the current drive, e.g. \\wsl.localhost -> C:\wsl.localhost.
+// Resolve Windows UNC roots with the OS API before accessing the filesystem.
+fs::path normalize_endpoint_root(fs::path root) {
+#ifdef _WIN32
+ const auto native=root.native();
+ if(native.size()>=2 &&
+    (native[0]==L'\\' || native[0]==L'/') &&
+    (native[1]==L'\\' || native[1]==L'/')) {
+  const DWORD capacity=GetFullPathNameW(native.c_str(),0,nullptr,nullptr);
+  if(capacity==0 || capacity>32767)
+   throw std::runtime_error("Cannot resolve UNC endpoint directory");
+  std::wstring resolved(capacity,L'\0');
+  const DWORD written=GetFullPathNameW(native.c_str(),capacity,resolved.data(),nullptr);
+  if(written==0 || written>=capacity)
+   throw std::runtime_error("Cannot normalize UNC endpoint directory");
+  resolved.resize(written);
+  if(resolved.size()<2 || resolved[0]!=L'\\' || resolved[1]!=L'\\')
+   throw std::runtime_error("UNC endpoint lost its network root");
+  return fs::path(std::move(resolved));
+ }
+#endif
+ return fs::absolute(std::move(root)).lexically_normal();
+}
+LocalEndpoint::LocalEndpoint(fs::path root) : root_(normalize_endpoint_root(std::move(root))) {
  if(fs::is_symlink(fs::symlink_status(root_)))throw std::runtime_error("Directory root must not be a symbolic link");
  if(!fs::is_directory(root_))throw std::runtime_error("Directory does not exist: "+root_.string());
 }
