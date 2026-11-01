@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Sébastien Kus
+// SPDX-License-Identifier: GPL-3.0-only
 #include "explorer_clsid.hpp"
 #include <windows.h>
 #include <shobjidl.h>
