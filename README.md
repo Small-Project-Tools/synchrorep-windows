@@ -25,7 +25,7 @@ The project is preparing an application to SignPath Foundation. **Current builds
 
 ## Installation Windows
 
-Récupérer le fichier `synchrorep-windows-0.13.6-x64.msi` dans les
+Récupérer le fichier `synchrorep-windows-0.13.7-x64.msi` dans les
 [artefacts de la dernière compilation Windows](https://git.small-project.dev/pub/desktop/synchrorep-windows/-/jobs/artifacts/main/browse/build-win?job=windows-mingw).
 
 La CI Linux/MinGW construit désormais **l’unique édition complète** en utilisant
@@ -82,7 +82,7 @@ cmake -S . -B build-win -DSYNCHROREP_REMOTE=ON \
   -DSQLite3_LIBRARY="$PWD/build-msys2/win64/lib/libsqlite3.dll.a"
 cmake --build build-win --parallel
 python3 scripts/stage_windows_runtime.py --prefix build-msys2/win64 --build build-win
-python3 scripts/render_windows_installer.py --build build-win --version 0.13.6
+python3 scripts/render_windows_installer.py --build build-win --version 0.13.7
 python3 tests/windows_installer_test.py --build build-win
 ```
 
@@ -138,10 +138,10 @@ L'exécutable Synchrorep dépend de DLL réseau, notamment `libcurl-4.dll`,
 
 Deux distributions complètes sont proposées :
 
-- `synchrorep-windows-0.13.6-x64.msi` : installation standard avec
+- `synchrorep-windows-0.13.7-x64.msi` : installation standard avec
   menu contextuel Explorer et toutes les DLL au même endroit
   (`C:\Program Files\Synchrorep`).
-- `synchrorep-windows-0.13.6-x64-portable.zip` : extraire **toute**
+- `synchrorep-windows-0.13.7-x64-portable.zip` : extraire **toute**
   l'archive dans un dossier avant d'exécuter `Synchrorep-0.13.4\synchrorep.exe`.
   Tous les fichiers DLL doivent rester à côté de l'exécutable.
 
@@ -177,7 +177,7 @@ L'option « miroir continu » reste distincte de la synchronisation
 bidirectionnelle par défaut et doit être activée explicitement.
 
 
-## Windows 0.13.6 : comparaison et fenetre de synchronisation
+## Windows 0.13.7 : comparaison et fenetre de synchronisation
 
 - Le dialogue natif Windows reste utilise pour choisir une destination. Il
   propose l'emplacement WSL \wsl.localhost lorsque Windows l'expose et

@@ -53,6 +53,15 @@ def main():
             raise RuntimeError("Unresolved Windows DLL dependency: "+dependency)
         staged.add(dependency)
         requested|=imports(source)-SYSTEM_DLLS-staged
+    # Debian MinGW and MSYS2 can expose incompatible libstdc++ TLS symbols.
+    # Windows test executables must link the same static C++ runtime as
+    # synchrorep.exe to prevent STATUS_ENTRYPOINT_NOT_FOUND on real Windows.
+    mixed_runtimes={"libstdc++-6.dll", "libgcc_s_seh-1.dll", "libwinpthread-1.dll"}
+    for test in sorted(options.build.glob("*tests.exe")):
+        unexpected=imports(test)&mixed_runtimes
+        if unexpected:
+            raise RuntimeError("Native Windows test must link its C++ runtime statically: "
+                               +test.name+" imports "+", ".join(sorted(unexpected)))
     # Stage all verified runtime DLLs beside test executables so Windows
     # integration tests can load MinGW's runtime, but put ONLY the reachable
     # application dependency closure into the MSI manifest.

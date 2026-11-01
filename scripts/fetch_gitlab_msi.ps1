@@ -28,17 +28,31 @@ try {
     throw 'Cannot determine the Synchrorep version'
   }
   $version = $Matches[1]
-  $pipelinesUrl = "$gitlabHost/api/v4/projects/$gitlabProject/pipelines?sha=$gitlabSha&status=success&per_page=100"
-  $pipelines = Invoke-RestMethod -Method Get -Uri $pipelinesUrl
-  $pipeline = $pipelines | Sort-Object id -Descending | Select-Object -First 1
-  if ($null -eq $pipeline) {
-    throw "No successful GitLab pipeline exists for commit $gitlabSha"
-  }
-  $jobs = Invoke-RestMethod -Method Get -Uri "$gitlabHost/api/v4/projects/$gitlabProject/pipelines/$($pipeline.id)/jobs?per_page=100"
-  $build = $jobs | Where-Object { $_.name -eq 'windows-mingw' -and $_.status -eq 'success' } | Select-Object -First 1
-  if ($null -eq $build) {
-    throw "GitLab pipeline $($pipeline.id) has no successful windows-mingw job"
-  }
+  # The exact GitLab build can finish while this GitHub job is starting.
+  # Do not require the whole pipeline to finish: its Wine stage is optional.
+  $deadline = (Get-Date).AddMinutes(10)
+  $pipeline = $null
+  $build = $null
+  do {
+    $pipelinesUrl = "$gitlabHost/api/v4/projects/$gitlabProject/pipelines?sha=$gitlabSha&per_page=100"
+    $pipelines = Invoke-RestMethod -Method Get -Uri $pipelinesUrl
+    foreach ($candidate in ($pipelines | Sort-Object id -Descending)) {
+      $jobs = Invoke-RestMethod -Method Get -Uri "$gitlabHost/api/v4/projects/$gitlabProject/pipelines/$($candidate.id)/jobs?per_page=100"
+      $windows = $jobs | Where-Object { $_.name -eq 'windows-mingw' -and $_.status -eq 'success' } | Select-Object -First 1
+      $linux = $jobs | Where-Object { $_.name -eq 'linux-tests' -and $_.status -eq 'success' } | Select-Object -First 1
+      $policy = $jobs | Where-Object { $_.name -eq 'signpath-policy-check' -and $_.status -eq 'success' } | Select-Object -First 1
+      if ($null -ne $windows -and $null -ne $linux -and $null -ne $policy) {
+        $pipeline = $candidate
+        $build = $windows
+        break
+      }
+    }
+    if ($null -ne $build) { break }
+    if ((Get-Date) -ge $deadline) {
+      throw "No successful mandatory GitLab build jobs found for commit $gitlabSha"
+    }
+    Start-Sleep -Seconds 15
+  } while ($true)
   $artifactName = "synchrorep-windows-$version-x64.msi"
   $artifactUrl = "$gitlabHost/api/v4/projects/$gitlabProject/jobs/$($build.id)/artifacts/build-win/$artifactName"
   $target = [IO.Path]::GetFullPath($OutputPath)
@@ -52,7 +66,7 @@ try {
     $magic = [byte[]]::new(8)
     $count = $stream.Read($magic, 0, 8)
   } finally { $stream.Dispose() }
-  if ($count -ne 8 -or [Convert]::ToHexString($magic) -ne 'D0CF11E0A1B11AE1') {
+  if ($count -ne 8 -or [BitConverter]::ToString($magic).Replace('-', '') -ne 'D0CF11E0A1B11AE1') {
     throw 'Downloaded artifact does not contain an MSI header'
   }
   $hash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash

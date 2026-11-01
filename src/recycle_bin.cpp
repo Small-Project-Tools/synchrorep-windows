@@ -33,10 +33,13 @@ void require(HRESULT result,const char* action){
 }
 bool supports_native_recycle(const std::filesystem::path& folder) noexcept {
  try {
+  // Some MinGW STL builds turn a UNC path into a drive-qualified path when
+  // computing absolute(). Reject UNC/WSL paths BEFORE that conversion.
+  const auto original=folder.native();
+  if(original.size()>=2 && (original[0]==L'\\'||original[0]==L'/') &&
+     (original[1]==L'\\'||original[1]==L'/'))return false;
   auto path=std::filesystem::absolute(folder).lexically_normal();
   const auto native=path.native();
-  // UNC, \\wsl.localhost and other virtual volumes cannot be
-  // assumed to support the Windows Recycle Bin.
   if(native.size()<3||native[1]!=L':'||
      (native[2]!=L'\\'&&native[2]!=L'/'))return false;
   const std::wstring volume{native[0],L':',L'\\'};
