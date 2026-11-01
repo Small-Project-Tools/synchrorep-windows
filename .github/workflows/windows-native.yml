@@ -1,0 +1,47 @@
+name: Windows native tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-native:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          $vcpkg = Join-Path $env:VCPKG_INSTALLATION_ROOT 'vcpkg.exe'
+          & $vcpkg install --triplet x64-windows-static 'curl[ssl,ssh]' sqlite3
+          if ($LASTEXITCODE -ne 0) { throw 'vcpkg failed' }
+      - name: Configure
+        run: |
+          cmake -S . -B build-msvc -G 'Visual Studio 17 2022' -A x64 -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static -DVCPKG_MANIFEST_MODE=OFF -DSYNCHROREP_REMOTE=ON
+          if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
+      - name: Build
+        run: |
+          cmake --build build-msvc --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+      - name: Test
+        run: |
+          ctest --test-dir build-msvc -C Release --output-on-failure --timeout 120
+          if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-logs-${{ matrix.os }}
+          path: build-msvc/Testing/Temporary/
+          if-no-files-found: ignore
