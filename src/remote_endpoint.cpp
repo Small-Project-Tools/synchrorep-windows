@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Sébastien Kus
+// SPDX-License-Identifier: GPL-3.0-only
 #include "synchrorep/remote_endpoint.hpp"
 #include <curl/curl.h>
 #include <algorithm>
