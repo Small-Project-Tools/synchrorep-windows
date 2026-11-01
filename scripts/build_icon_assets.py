@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Sébastien Kus
+# SPDX-License-Identifier: GPL-3.0-only
 """Rebuild Windows icon assets using only Python's standard library."""
 from __future__ import annotations
 import hashlib, struct, zlib

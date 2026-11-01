@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Sébastien Kus
+# SPDX-License-Identifier: GPL-3.0-only
 """Stage verified Windows curl runtime and its third-party license notices.
 
 Produces DLLs beside the Windows executable; validates import closure via

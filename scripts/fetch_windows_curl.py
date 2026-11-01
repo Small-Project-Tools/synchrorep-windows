@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Sébastien Kus
+# SPDX-License-Identifier: GPL-3.0-only
 """Fetch MSYS2 MinGW64 curl/OpenSSL + runtime deps for Windows CI.
 
 Only reads the MSYS2 HTTPS repository metadata and checksum-verified archives.

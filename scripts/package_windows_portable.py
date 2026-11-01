@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Sébastien Kus
+# SPDX-License-Identifier: GPL-3.0-only
 """Build a standalone Windows portable ZIP with all dependency DLLs.
 
 The Windows executable is dynamically linked to curl/SSH/OpenSSL.

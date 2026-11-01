@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Sébastien Kus
+# SPDX-License-Identifier: GPL-3.0-only
 """Generate the single WiX3 MSI manifest from the verified Windows runtime."""
 import argparse
 import re
