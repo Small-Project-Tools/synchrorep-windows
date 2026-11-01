@@ -39,7 +39,7 @@ jobs:
             & (Join-Path $env:VCPKG_INSTALLATION_ROOT 'bootstrap-vcpkg.bat') -disableMetrics
             if ($LASTEXITCODE -ne 0) { throw 'vcpkg bootstrap failed' }
           }
-          & $vcpkg install --triplet x64-windows-static 'curl[ssl,ssh]' sqlite3
+          & $vcpkg install --classic --triplet x64-windows-static 'curl[ssl,ssh]' sqlite3
           if ($LASTEXITCODE -ne 0) { throw 'vcpkg install failed' }
 
       - name: Configure MSVC build
@@ -88,7 +88,7 @@ jobs:
 
   msi-smoke:
     name: GitLab MSI installation / Windows 2025
-    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ vars.SYNCHROREP_MSI_CI_ENABLED == 'true' }}
     runs-on: windows-2025
     timeout-minutes: 25
     permissions:
@@ -97,6 +97,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Download GitLab CI MSI for checked-out version
         shell: pwsh
+        env:
+          GITLAB_ARTIFACT_TOKEN: ${{ secrets.GITLAB_ARTIFACT_TOKEN }}
         run: |
           $cmake = Get-Content CMakeLists.txt -Raw
           if ($cmake -notmatch 'project\(synchrorep_windows VERSION (\d+\.\d+\.\d+)') {
@@ -106,7 +108,13 @@ jobs:
           $filename = "synchrorep-windows-$version-x64.msi"
           $url = "https://git.small-project.dev/api/v4/projects/665/jobs/artifacts/main/raw/build-win/$filename?job=windows-mingw"
           $target = Join-Path $env:RUNNER_TEMP 'synchrorep.msi'
-          Invoke-WebRequest -Uri $url -OutFile $target -MaximumRedirection 3
+          $headers = @{}
+          if ($env:GITLAB_ARTIFACT_TOKEN) { $headers['PRIVATE-TOKEN'] = $env:GITLAB_ARTIFACT_TOKEN }
+          try {
+            Invoke-WebRequest -Uri $url -Headers $headers -OutFile $target -MaximumRedirection 3
+          } catch {
+            throw "GitLab MSI artifact download failed. Check CI artifact permissions and SYNCHROREP_MSI_CI_ENABLED: $($_.Exception.Message)"
+          }
           $item = Get-Item $target
           if ($item.Length -lt 100000) { throw "MSI is missing or suspiciously small ($($item.Length) bytes)" }
           $firstBytes = [IO.File]::ReadAllBytes($target)[0..7]
