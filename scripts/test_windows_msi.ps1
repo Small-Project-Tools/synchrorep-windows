@@ -5,8 +5,12 @@ $ErrorActionPreference = 'Stop'
 $resolved = (Resolve-Path $MsiPath).Path
 if (-not (Test-Path $resolved -PathType Leaf)) { throw "MSI missing: $MsiPath" }
 if ([IO.Path]::GetExtension($resolved).ToLowerInvariant() -ne '.msi') { throw 'Expected .msi' }
-$header = [IO.File]::ReadAllBytes($resolved)
-if ($header.Length -lt 8 -or -not ([Convert]::ToHexString($header[0..7]) -eq 'D0CF11E0A1B11AE1')) {
+$fileStream = [IO.File]::OpenRead($resolved)
+try {
+  $header = [byte[]]::new(8)
+  $readCount = $fileStream.Read($header, 0, $header.Length)
+} finally { $fileStream.Dispose() }
+if ($readCount -lt 8 -or -not ([Convert]::ToHexString($header[0..7]) -eq 'D0CF11E0A1B11AE1')) {
   throw 'File is not an MSI compound document'
 }
 $installDir = Join-Path $env:ProgramFiles 'Synchrorep'
