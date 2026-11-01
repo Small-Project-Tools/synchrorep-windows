@@ -1,5 +1,11 @@
 #define UNICODE
 #define _UNICODE
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 #include <curl/curl.h>
 #include <cwchar>
@@ -129,6 +135,34 @@ LRESULT CALLBACK synchronizationWindowProc(HWND window,UINT message,WPARAM w,LPA
  case WM_COMMAND:
   if(LOWORD(w)==IdCancel&&job){job->stop();return 0;}
   return 0;
+ case WM_ERASEBKGND:return 1;
+ case WM_PAINT: {
+  PAINTSTRUCT paint{};
+  HDC dc=BeginPaint(window,&paint);
+  RECT area{};GetClientRect(window,&area);
+  FillRect(dc,&area,synchrorep::winui::ui_card_brush());
+  EndPaint(window,&paint);return 0;
+ }
+ case WM_DRAWITEM: {
+  const auto* item=reinterpret_cast<DRAWITEMSTRUCT*>(l);
+  if(item->CtlType==ODT_BUTTON){
+   synchrorep::winui::ui_draw_button(*item,false,false,true);
+   return TRUE;
+  }
+  return FALSE;
+ }
+ case WM_CTLCOLORSTATIC: {
+  HDC dc=reinterpret_cast<HDC>(w);
+  SetBkColor(dc,synchrorep::winui::color::card);
+  SetTextColor(dc,synchrorep::winui::color::white);
+  return reinterpret_cast<LRESULT>(synchrorep::winui::ui_card_brush());
+ }
+ case WM_CTLCOLORLISTBOX: {
+  HDC dc=reinterpret_cast<HDC>(w);
+  SetBkColor(dc,synchrorep::winui::color::input);
+  SetTextColor(dc,synchrorep::winui::color::white);
+  return reinterpret_cast<LRESULT>(synchrorep::winui::ui_input_brush());
+ }
  case WM_CLOSE:
   if(busy){
    if(MessageBoxW(window,L"Stop the running synchronization?",L"Synchrorep",
@@ -156,7 +190,7 @@ void openSynchronizationWindow(){
   WNDCLASSW wc{};wc.lpfnWndProc=synchronizationWindowProc;
   wc.hInstance=module;wc.hCursor=LoadCursor(nullptr,IDC_ARROW);
   wc.hIcon=LoadIconW(module,MAKEINTRESOURCEW(101));
-  wc.hbrBackground=reinterpret_cast<HBRUSH>(COLOR_WINDOW+1);
+  wc.hbrBackground=synchrorep::winui::ui_card_brush();
   wc.lpszClassName=L"SynchrorepSynchronization";
   if(!RegisterClassW(&wc)&&GetLastError()!=ERROR_CLASS_ALREADY_EXISTS)
    throw std::runtime_error("Cannot register synchronization window");
@@ -166,14 +200,18 @@ void openSynchronizationWindow(){
   L"Synchrorep - Synchronization",WS_OVERLAPPEDWINDOW,
   CW_USEDEFAULT,CW_USEDEFAULT,730,445,nullptr,nullptr,module,nullptr);
  if(!syncWindow)throw std::runtime_error("Cannot create synchronization window");
+ synchrorep::winui::ui_set_dark_title(syncWindow);
  syncStatus=CreateWindowW(L"STATIC",L"Preparing synchronization...",WS_CHILD|WS_VISIBLE,
   20,18,670,40,syncWindow,nullptr,module,nullptr);
  syncProgress=CreateWindowW(PROGRESS_CLASSW,L"",WS_CHILD|WS_VISIBLE|PBS_SMOOTH,
   20,64,670,24,syncWindow,nullptr,module,nullptr);
  syncChanges=CreateWindowW(L"LISTBOX",L"",WS_CHILD|WS_VISIBLE|WS_BORDER|WS_VSCROLL|WS_HSCROLL,
   20,104,670,220,syncWindow,nullptr,module,nullptr);
- syncCancel=CreateWindowW(L"BUTTON",L"Cancel operation",WS_CHILD|WS_VISIBLE|WS_TABSTOP,
+ syncCancel=CreateWindowW(L"BUTTON",L"Cancel operation",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW,
   20,340,210,32,syncWindow,reinterpret_cast<HMENU>(static_cast<INT_PTR>(IdCancel)),module,nullptr);
+ for(HWND h:{syncStatus,syncChanges,syncCancel})
+  if(h)SendMessageW(h,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE);
+ synchrorep::winui::ui_style_button(syncCancel);
  ShowWindow(syncWindow,SW_SHOWNORMAL);
 }
 void showMainWindow(){
@@ -684,24 +722,62 @@ void exportRecoveryItem(HWND window){
 }
 LRESULT CALLBACK recoveryProc(HWND window,UINT message,WPARAM w,LPARAM l){
  switch(message){
+ case WM_ERASEBKGND:return 1;
+ case WM_PAINT:{
+  PAINTSTRUCT paint{};
+  HDC dc=BeginPaint(window,&paint);
+  RECT area{};GetClientRect(window,&area);
+  FillRect(dc,&area,synchrorep::winui::ui_card_brush());
+  EndPaint(window,&paint);return 0;
+ }
+ case WM_CTLCOLOREDIT:
+ case WM_CTLCOLORLISTBOX:{
+  HDC dc=reinterpret_cast<HDC>(w);
+  SetBkColor(dc,synchrorep::winui::color::input);
+  SetTextColor(dc,synchrorep::winui::color::white);
+  return reinterpret_cast<LRESULT>(synchrorep::winui::ui_input_brush());
+ }
+ case WM_CTLCOLORSTATIC:{
+  HDC dc=reinterpret_cast<HDC>(w);
+  SetBkColor(dc,synchrorep::winui::color::card);
+  SetTextColor(dc,synchrorep::winui::color::white);
+  return reinterpret_cast<LRESULT>(synchrorep::winui::ui_card_brush());
+ }
+ case WM_DRAWITEM:{
+  const auto* item=reinterpret_cast<DRAWITEMSTRUCT*>(l);
+  if(item->CtlType==ODT_BUTTON) {
+   synchrorep::winui::ui_draw_button(*item,false,item->CtlID==RecoveryExport,false);
+   return TRUE;
+  }
+  return FALSE;
+ }
  case WM_CREATE:{
   CreateWindowW(L"STATIC",L"Archived versions (read-only; exports never overwrite files)",
     WS_CHILD|WS_VISIBLE,16,15,735,22,window,nullptr,GetModuleHandleW(nullptr),nullptr);
-  recoveryList=CreateWindowExW(WS_EX_CLIENTEDGE,L"LISTBOX",L"",
+  recoveryList=CreateWindowExW(0,L"LISTBOX",L"",
     WS_CHILD|WS_VISIBLE|WS_VSCROLL|WS_HSCROLL|LBS_NOTIFY,
     16,43,750,318,window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(RecoveryList)),
     GetModuleHandleW(nullptr),nullptr);
   recoveryInfo=CreateWindowW(L"STATIC",L"",WS_CHILD|WS_VISIBLE,16,372,745,28,
     window,nullptr,GetModuleHandleW(nullptr),nullptr);
-  CreateWindowW(L"BUTTON",L"Refresh",WS_CHILD|WS_VISIBLE|WS_TABSTOP,
+  CreateWindowW(L"BUTTON",L"Refresh",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW,
     16,415,145,34,window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(RecoveryRefresh)),
     GetModuleHandleW(nullptr),nullptr);
-  CreateWindowW(L"BUTTON",L"Export selected",WS_CHILD|WS_VISIBLE|WS_TABSTOP,
+  CreateWindowW(L"BUTTON",L"Export selected",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW,
     173,415,185,34,window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(RecoveryExport)),
     GetModuleHandleW(nullptr),nullptr);
-  CreateWindowW(L"BUTTON",L"Open archive folder",WS_CHILD|WS_VISIBLE|WS_TABSTOP,
+  CreateWindowW(L"BUTTON",L"Open archive folder",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW,
     370,415,194,34,window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(RecoveryFolder)),
     GetModuleHandleW(nullptr),nullptr);
+  for(int id:{RecoveryRefresh,RecoveryExport,RecoveryFolder}) {
+   HWND button=GetDlgItem(window,id);
+   if(button){
+    SendMessageW(button,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE);
+    synchrorep::winui::ui_style_button(button);
+   }
+  }
+  for(HWND child:{recoveryList,recoveryInfo})
+   if(child)SendMessageW(child,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE);
   return 0;
  }
  case WM_COMMAND:{
@@ -742,7 +818,7 @@ void openRecoveryBrowser(){
   cls.hInstance=module;
   cls.hIcon=LoadIconW(module,MAKEINTRESOURCEW(101));
   cls.hCursor=LoadCursor(nullptr,IDC_ARROW);
-  cls.hbrBackground=reinterpret_cast<HBRUSH>(COLOR_WINDOW+1);
+  cls.hbrBackground=synchrorep::winui::ui_card_brush();
   cls.lpszClassName=L"SynchrorepRecovery";
   if(!RegisterClassW(&cls) && GetLastError()!=ERROR_CLASS_ALREADY_EXISTS)
    throw std::runtime_error("Could not register recovery window");
@@ -752,6 +828,7 @@ void openRecoveryBrowser(){
    WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX,
    CW_USEDEFAULT,CW_USEDEFAULT,800,505,mainWindow,nullptr,module,nullptr);
  if(!recoveryWindow)throw std::runtime_error("Could not create recovery window");
+ synchrorep::winui::ui_set_dark_title(recoveryWindow);
  try{reloadRecovery();}
  catch(...){DestroyWindow(recoveryWindow);throw;}
  ShowWindow(recoveryWindow,SW_SHOWNORMAL);

@@ -7,6 +7,7 @@
 #include <windows.h>
 #include <filesystem>
 #include <iostream>
+#include <fstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -15,7 +16,8 @@
 namespace {
 namespace fs=std::filesystem;
 constexpr int IdProfiles=101,IdSave=103,IdName=105,IdMirror=132;
-constexpr int IdLeftUser=108,IdChanges=119,IdPolicy=115,IdOpenRecovery=129;
+constexpr int IdLeft=106,IdRight=107,IdPreview=117,IdChanges=119,IdStatus=126;
+constexpr int IdLeftUser=108,IdPolicy=115,IdOpenRecovery=129;
 constexpr int IdTabConfiguration=200,IdTabPreview=201,IdTabHistory=202,
  IdTabSettings=203,IdModeBidirectional=206,IdModeMirror=207,
  IdSettingsNetwork=208,IdSettingsBehavior=209;
@@ -142,6 +144,36 @@ int main() {
   visible(app,IdChanges,false);
   require(!fs::exists(isolated/"Synchrorep"/"profiles.dat"),
           "Tab navigation unexpectedly created a synchronization profile");
+
+  // Exercise a real preview through the asynchronous GUI pipeline, without
+  // mutating either source or destination. It also opens the themed progress
+  // window and transitions to the Preview tab automatically on completion.
+  fs::create_directories(isolated/"source");
+  fs::create_directories(isolated/"target");
+  std::ofstream(isolated/"source"/"readme.txt")<<"UI preview file";
+  SetWindowTextW(GetDlgItem(app,IdLeft),(isolated/"source").c_str());
+  SetWindowTextW(GetDlgItem(app,IdRight),(isolated/"target").c_str());
+  click(app,IdPreview);
+  bool previewComplete=false;
+  for(int attempt=0;attempt<400;++attempt) {
+   if(WaitForSingleObject(process.hProcess,0)!=WAIT_TIMEOUT)
+    throw std::runtime_error("GUI exited while preparing the preview");
+   wchar_t status[256]{};
+   GetWindowTextW(GetDlgItem(app,IdStatus),status,256);
+   if(std::wstring(status).find(L"Preview complete")!=std::wstring::npos) {
+    previewComplete=true;
+    break;
+   }
+   if(std::wstring(status).find(L"Operation failed")!=std::wstring::npos)
+    throw std::runtime_error("Asynchronous GUI preview failed");
+   Sleep(50);
+  }
+  require(previewComplete,"Asynchronous preview did not complete");
+  visible(app,IdChanges,true);
+  require(SendMessageW(GetDlgItem(app,IdChanges),LB_GETCOUNT,0,0)>=1,
+          "Preview did not list the source file");
+  require(!fs::exists(isolated/"target"/"readme.txt"),
+          "Preview incorrectly modified the destination");
   PostMessageW(app,WM_CLOSE,0,0);
   require(WaitForSingleObject(process.hProcess,7000)==WAIT_OBJECT_0,
           "Closing the GUI did not terminate the process");
