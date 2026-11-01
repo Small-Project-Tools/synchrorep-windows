@@ -1,5 +1,9 @@
 #include "synchrorep/sqlite_history.hpp"
-#include <cassert>
+#include <stdexcept>
+#define assert(expression) do { \
+ if (!(expression)) throw std::runtime_error("Assertion failed at line " + \
+ std::to_string(__LINE__) + ": " #expression); \
+} while (false)
 #include <chrono>
 #include <iostream>
 using namespace synchrorep;
@@ -40,6 +44,12 @@ int main(){
   assert(storage.load("other","pair").size()==2);
   storage.erase_pair("left","right"); // idempotent
   assert(storage.load("other","pair").size()==2);
+  // Deletion must survive reopening the database, without affecting another pair.
+  SqliteHistory reopened(root/"history.sqlite");
+  assert(!reopened.has_pair("left","right"));
+  assert(reopened.load("left","right").empty());
+  assert(reopened.has_pair("other","pair"));
+  assert(reopened.load("other","pair").size()==2);
   fs::remove_all(root);
   std::cout<<"SQLite indexed history, isolation, persistence and replacement OK\n";
  }catch(...){fs::remove_all(root);throw;}
