@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Sébastien Kus
+// SPDX-License-Identifier: GPL-3.0-only
 #define UNICODE
 #define _UNICODE
 #define WIN32_LEAN_AND_MEAN
