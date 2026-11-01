@@ -27,6 +27,7 @@
 #include "synchrorep/profiles.hpp"
 #include "synchrorep/remote_endpoint.hpp"
 #include "synchrorep/sha256.hpp"
+#include "synchrorep/sqlite_history.hpp"
 #include "synchrorep/mirror_monitor.hpp"
 #include "startup_registry.hpp"
 #include "synchrorep/startup_profiles.hpp"
@@ -229,6 +230,24 @@ std::filesystem::path appDirectory(){
 }
 std::filesystem::path statePath(const Endpoint& left,const Endpoint& right){
  auto key=left.identity()+"\n"+right.identity();
+ Sha256 hash;hash.update(reinterpret_cast<const unsigned char*>(key.data()),key.size());
+ return appDirectory()/(toWide(hash.finish())+L".state");
+}
+std::string storedIdentity(const std::string& uri){
+ const auto kind=endpoint_kind(uri);
+ if(kind==EndpointKind::Ftp||kind==EndpointKind::Sftp){
+  const auto start=uri.find('/',uri.find("://")+3);
+  std::string normalized=uri;
+  if(start==std::string::npos||normalized.back()!='/')normalized+='/';
+  return normalized;
+ }
+ const auto path=kind==EndpointKind::Wsl?wsl_unc_path(uri):
+  std::filesystem::path(toWide(uri));
+ auto normalized=std::filesystem::absolute(path).lexically_normal().generic_u8string();
+ return "file:"+std::string(normalized.begin(),normalized.end());
+}
+std::filesystem::path profileStatePath(const Profile& profile){
+ const auto key=storedIdentity(profile.left)+"\n"+storedIdentity(profile.right);
  Sha256 hash;hash.update(reinterpret_cast<const unsigned char*>(key.data()),key.size());
  return appDirectory()/(toWide(hash.finish())+L".state");
 }
@@ -728,14 +747,21 @@ void onCommand(int id){
   break;
  }
  case IdNew:
+  if(busy)break;
   selectedProfile=-1;overrides.clear();shownDecisions.clear();
   SendMessageW(controls[IdMirror],BM_SETCHECK,BST_UNCHECKED,0);
   SendMessageW(controls[IdAutoStart],BM_SETCHECK,BST_UNCHECKED,0);
   EnableWindow(controls[IdAutoStart],FALSE);
+  SendMessageW(controls[IdPolicy],CB_SETCURSEL,0,0);
+  for(int id:{IdDeletes,IdProtect,IdRecycle})
+   SendMessageW(controls[id],BM_SETCHECK,BST_CHECKED,0);
+  SendMessageW(controls[IdVerifyHash],BM_SETCHECK,BST_UNCHECKED,0);
+  set(IdKnownHosts,L"");
   set(IdName,L"New synchronization");set(IdLeft,L"");set(IdRight,L"");
   clearCredentials();SendMessageW(controls[IdChanges],LB_RESETCONTENT,0,0);
   updateList();break;
  case IdSave:{
+  if(busy)throw std::runtime_error("Cannot edit profiles during synchronization");
   auto p=fromForm();
   if(p.name.empty()||p.left.empty()||p.right.empty())throw std::runtime_error("Name and both locations are mandatory");
   for(std::size_t i=0;i<profiles.size();++i)
@@ -767,10 +793,29 @@ void onCommand(int id){
   updateList();break;
  }
  case IdDelete:
-  if(selectedProfile>=0 && MessageBoxW(mainWindow,L"Delete this synchronization profile?",
+  if(busy)throw std::runtime_error("Cannot delete a profile while synchronization is running");
+  if(selectedProfile>=0 && MessageBoxW(mainWindow,
+       L"Delete this synchronization profile and its stored file history? Files on disk are not deleted.",
        L"Synchrorep",MB_YESNO|MB_ICONQUESTION)==IDYES){
-   profiles.erase(profiles.begin()+selectedProfile);
-   ProfileStore(appDirectory()/"profiles.dat").save(profiles);
+   const auto removed=profiles[static_cast<std::size_t>(selectedProfile)];
+   const auto state=profileStatePath(removed);
+   auto remaining=profiles;
+   remaining.erase(remaining.begin()+selectedProfile);
+   bool shared=false;
+   for(const auto& p:remaining)
+    if(profileStatePath(p)==state){shared=true;break;}
+   // Save the new profile set before removing the orphaned history.
+   ProfileStore(appDirectory()/"profiles.dat").save(remaining);
+   profiles=std::move(remaining);
+   if(!shared){
+    auto sqlite=state;sqlite+=L".sqlite";
+    SqliteHistory(sqlite).erase_pair(storedIdentity(removed.left),storedIdentity(removed.right));
+    // Prevent a later recreation of the same profile from importing stale
+    // legacy history after its SQLite record has been deleted.
+    std::error_code ec;
+    std::filesystem::remove(state,ec);
+    if(ec)throw std::filesystem::filesystem_error("Cannot clear legacy history",state,ec);
+   }
    wchar_t module[32768]{};
    if(!GetModuleFileNameW(nullptr,module,32768))
     throw std::runtime_error("Cannot locate application for automatic startup");

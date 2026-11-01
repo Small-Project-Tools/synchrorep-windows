@@ -31,6 +31,15 @@ int main(){
   assert(storage.load("left","right").empty());
   assert(storage.has_pair("left","right"));
   assert(storage.load("other","right").empty());
+  storage.save("left","right",entries);
+  storage.save("other","pair",entries);
+  storage.erase_pair("left","right");
+  assert(!storage.has_pair("left","right"));
+  assert(storage.load("left","right").empty());
+  assert(storage.has_pair("other","pair"));
+  assert(storage.load("other","pair").size()==2);
+  storage.erase_pair("left","right"); // idempotent
+  assert(storage.load("other","pair").size()==2);
   fs::remove_all(root);
   std::cout<<"SQLite indexed history, isolation, persistence and replacement OK\n";
  }catch(...){fs::remove_all(root);throw;}

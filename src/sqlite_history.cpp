@@ -91,6 +91,23 @@ bool SqliteHistory::has_any_pair()const{
  Statement query(c.db,"SELECT 1 FROM sync_pairs LIMIT 1");
  return sqlite3_step(query.stmt)==SQLITE_ROW;
 }
+void SqliteHistory::erase_pair(const std::string& left,const std::string& right)const{
+ if(!std::filesystem::exists(file_))return;
+ Connection c(file_);schema(c);
+ c.exec("BEGIN IMMEDIATE");
+ try{
+  const auto id=pair_id(c,left,right,false);
+  if(id){
+   Statement erase(c.db,"DELETE FROM files WHERE pair_id=?");
+   erase.integer(1,id);
+   if(sqlite3_step(erase.stmt)!=SQLITE_DONE)throw std::runtime_error(sqlite3_errmsg(c.db));
+   Statement pair(c.db,"DELETE FROM sync_pairs WHERE id=?");
+   pair.integer(1,id);
+   if(sqlite3_step(pair.stmt)!=SQLITE_DONE)throw std::runtime_error(sqlite3_errmsg(c.db));
+  }
+  c.exec("COMMIT");
+ }catch(...){try{c.exec("ROLLBACK");}catch(...){}throw;}
+}
 bool SqliteHistory::has_pair(const std::string& left,const std::string& right)const{
  if(!std::filesystem::exists(file_))return false;
  Connection c(file_);schema(c);
