@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      msi_url:
+        description: 'HTTPS URL for a CI-built MSI from git.small-project.dev (optional)'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -83,5 +88,38 @@ jobs:
             build-msvc/CMakeFiles/CMakeOutput.log
             build-msvc/CMakeFiles/CMakeError.log
             build-msvc/Testing/Temporary/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  msi-smoke:
+    name: Real MSI installation / Windows 2025
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.msi_url != '' }}
+    runs-on: windows-2025
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download trusted MSI
+        shell: pwsh
+        env:
+          MSI_URL: ${{ inputs.msi_url }}
+        run: |
+          $uri = [Uri]$env:MSI_URL
+          if ($uri.Scheme -ne 'https' -or $uri.Host -ne 'git.small-project.dev' -or
+              -not $uri.AbsolutePath.StartsWith('/pub/desktop/synchrorep-windows/')) {
+            throw 'Only HTTPS artifacts from the official Synchrorep GitLab repository are accepted'
+          }
+          Invoke-WebRequest -Uri $uri -OutFile "$env:RUNNER_TEMP/synchrorep.msi" -MaximumRedirection 3
+      - name: Install, verify and uninstall MSI
+        shell: pwsh
+        run: |
+          ./scripts/test_windows_msi.ps1 -MsiPath "$env:RUNNER_TEMP/synchrorep.msi"
+      - name: Preserve installer logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-msi-install-logs
+          path: ${{ runner.temp }}/synchrorep-msi-logs/
           if-no-files-found: ignore
           retention-days: 7
