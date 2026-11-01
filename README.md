@@ -27,9 +27,9 @@ The project is preparing an application to SignPath Foundation. **Current builds
 ## Installation Windows
 
 Récupérer le fichier `synchrorep-windows-0.13.8-x64.msi` dans les
-[artefacts de la dernière compilation Windows](https://git.small-project.dev/pub/desktop/synchrorep-windows/-/jobs/artifacts/main/browse/build-win?job=windows-mingw).
+[artefacts de la dernière compilation Windows](https://github.com/Small-Project-Tools/synchrorep-windows/actions/workflows/distribution.yml).
 
-La CI Linux/MinGW construit désormais **l’unique édition complète** en utilisant
+La CI GitHub Actions Linux/MinGW construit désormais **l’unique édition complète** en utilisant
 la variante Windows **libcurl/OpenSSL + libssh2** fournie par MSYS2.
 La compilation télécharge les paquets en HTTPS, vérifie leurs empreintes SHA-256
 issues des métadonnées du dépôt, détermine les DLL réellement nécessaires,
@@ -137,7 +137,7 @@ en charge les notifications classiques et la version 4 des événements Windows.
 
 L'exécutable Synchrorep dépend de DLL réseau, notamment `libcurl-4.dll`,
 `libssh2-1.dll` et OpenSSL. Il **ne faut jamais télécharger ou lancer
-`synchrorep.exe` seul** depuis les artefacts GitLab.
+`synchrorep.exe` seul** depuis les artefacts GitHub Actions.
 
 Deux distributions complètes sont proposées :
 
@@ -145,7 +145,7 @@ Deux distributions complètes sont proposées :
   menu contextuel Explorer et toutes les DLL au même endroit
   (`C:\Program Files\Synchrorep`).
 - `synchrorep-windows-0.13.8-x64-portable.zip` : extraire **toute**
-  l'archive dans un dossier avant d'exécuter `Synchrorep-0.13.4\synchrorep.exe`.
+  l'archive dans un dossier avant d'exécuter `Synchrorep-0.13.8\synchrorep.exe`.
   Tous les fichiers DLL doivent rester à côté de l'exécutable.
 
 La CI refuse dorénavant de publier une archive portable incomplète.
