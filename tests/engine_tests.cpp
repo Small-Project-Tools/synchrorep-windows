@@ -252,7 +252,12 @@ int main(){
   assert(read(cl/"right.txt")=="RIGHT");
   assert(read(cr/"skip.txt")=="RIGHT"&&read(cl/"skip.txt")=="LEFT");
   assert(!fs::exists(cr/"deleted.txt"));
-  assert(first.run(cl,cr).conflicts.empty()); // newer timestamp wins for skipped divergence
+  // Skip deliberately preserves both divergent versions. Without an override,
+  // the next run must report that unresolved conflict rather than overwrite data.
+  const auto remaining=first.plan(cl,cr);
+  assert(std::any_of(remaining.begin(),remaining.end(),[](const Decision& d){
+   return d.relative=="skip.txt" && d.action==Action::Conflict;
+  }));
 
   // Progress and cancellation: stop after the first complete file,
   // leaving state unchanged so the next run can reconcile safely.
