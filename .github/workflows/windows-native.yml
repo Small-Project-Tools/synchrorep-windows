@@ -35,8 +35,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Cache vcpkg binary packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-binary-cache
+          key: vcpkg-${{ matrix.os }}-static-v1-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ matrix.os }}-static-v1-
+
       - name: Prepare vcpkg
         run: |
+          $cacheDirectory = Join-Path $env:RUNNER_TEMP 'vcpkg-binary-cache'
+          New-Item -ItemType Directory -Path $cacheDirectory -Force | Out-Null
+          $env:VCPKG_BINARY_SOURCES = "clear;files,$cacheDirectory,readwrite"
           if (-not $env:VCPKG_INSTALLATION_ROOT) { throw 'VCPKG_INSTALLATION_ROOT is undefined' }
           $vcpkg = Join-Path $env:VCPKG_INSTALLATION_ROOT 'vcpkg.exe'
           if (-not (Test-Path $vcpkg)) {

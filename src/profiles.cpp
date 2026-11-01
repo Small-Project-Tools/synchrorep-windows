@@ -10,6 +10,7 @@ std::vector<Profile> ProfileStore::load() const {
  std::ifstream in(file_,std::ios::binary);
  if(!in)throw std::runtime_error("Cannot read Synchrorep profiles");
  std::string header;std::getline(in,header);
+ if(!header.empty()&&header.back()=='\r')header.pop_back();
  const bool previous=header=="SYNCHROREP-PROFILES1";
  const bool second=header=="SYNCHROREP-PROFILES2";
  const bool third=header=="SYNCHROREP-PROFILES3";

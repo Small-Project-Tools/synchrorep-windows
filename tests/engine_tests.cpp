@@ -53,7 +53,7 @@ int main(){
  const auto root=fs::temp_directory_path()/("synchrorep-test-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
  auto a=root/"a",b=root/"b",c=root/"c";fs::create_directories(a);fs::create_directories(b);fs::create_directories(c);
  try {
-  Engine e(root/"state"/"history.txt");
+  Engine e(root/"state"/"history.txt",Options{ConflictPolicy::Ask,true,{},false,true,false});
   write(a/"file.txt","a");assert(e.run(a,b).copied==1);
   assert(read(b/"file.txt")=="a");assert(e.run(a,b).copied==0);
   write(b/"only-right.txt","right");assert(e.run(a,b).copied==1);
@@ -132,7 +132,7 @@ int main(){
   assert(read(n/"pick.txt")=="RIGHT-AGAIN");
   // Same byte length AND restored timestamp must still be detected.
   auto hz=root/"hz",hz2=root/"hz2";fs::create_directories(hz);fs::create_directories(hz2);
-  Options fingerprintOptions;fingerprintOptions.verify_hash=true;
+  Options fingerprintOptions;fingerprintOptions.verify_hash=true;fingerprintOptions.recycle_local_deletions=false;
   Engine fingerprint(root/"state"/"fingerprint.state",fingerprintOptions);
   write(hz/"touch.txt","AAAA");
   assert(fingerprint.run(hz,hz2).copied==1);

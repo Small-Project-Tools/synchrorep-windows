@@ -73,6 +73,7 @@ int main(){
   Options opts;
   opts.mode=SyncMode::Mirror;
   opts.verify_hash=true;
+  opts.recycle_local_deletions=false;
   Engine mirror(history,opts);
   // Mirror is not two-way: target extras are purged, not copied back.
   write(src/"only-source.txt","S1");
@@ -133,7 +134,7 @@ int main(){
   assert(ignoredClash.run(typeSrc,typeDst).conflicts.size()==1);
   assert(fs::is_directory(typeDst/"one"));
   // No deletion policy means stray targets are retained but not propagated.
-  Options keep;keep.mode=SyncMode::Mirror;keep.propagate_deletions=false;
+  Options keep;keep.mode=SyncMode::Mirror;keep.propagate_deletions=false;keep.recycle_local_deletions=false;
   Engine noDelete(root/"state"/"no-deletions",keep);
   write(typeDst/"extra","unrelated");
   assert(noDelete.plan(typeSrc,typeDst).size()==2);
