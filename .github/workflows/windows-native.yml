@@ -1,4 +1,4 @@
-name: Windows native tests
+name: Windows native validation
 
 on:
   push:
@@ -9,9 +9,15 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: windows-native-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  windows-native:
+  native:
+    name: Windows native / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -19,29 +25,63 @@ jobs:
     defaults:
       run:
         shell: pwsh
+    env:
+      VCPKG_DEFAULT_TRIPLET: x64-windows-static
     steps:
-      - uses: actions/checkout@v4
-      - name: Install dependencies
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare vcpkg
         run: |
+          if (-not $env:VCPKG_INSTALLATION_ROOT) { throw 'VCPKG_INSTALLATION_ROOT is undefined' }
           $vcpkg = Join-Path $env:VCPKG_INSTALLATION_ROOT 'vcpkg.exe'
+          if (-not (Test-Path $vcpkg)) {
+            & (Join-Path $env:VCPKG_INSTALLATION_ROOT 'bootstrap-vcpkg.bat') -disableMetrics
+            if ($LASTEXITCODE -ne 0) { throw 'vcpkg bootstrap failed' }
+          }
           & $vcpkg install --triplet x64-windows-static 'curl[ssl,ssh]' sqlite3
-          if ($LASTEXITCODE -ne 0) { throw 'vcpkg failed' }
-      - name: Configure
+          if ($LASTEXITCODE -ne 0) { throw 'vcpkg install failed' }
+
+      - name: Configure MSVC build
         run: |
-          cmake -S . -B build-msvc -G 'Visual Studio 17 2022' -A x64 -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static -DVCPKG_MANIFEST_MODE=OFF -DSYNCHROREP_REMOTE=ON
+          $toolchain = Join-Path $env:VCPKG_INSTALLATION_ROOT 'scripts/buildsystems/vcpkg.cmake'
+          cmake -S . -B build-msvc -G 'Visual Studio 17 2022' -A x64 `
+            "-DCMAKE_TOOLCHAIN_FILE=$toolchain" `
+            '-DVCPKG_TARGET_TRIPLET=x64-windows-static' `
+            '-DVCPKG_MANIFEST_MODE=OFF' `
+            '-DSYNCHROREP_REMOTE=ON'
           if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
-      - name: Build
+
+      - name: Build application and test targets
         run: |
           cmake --build build-msvc --config Release --parallel 2
-          if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
-      - name: Test
+          if ($LASTEXITCODE -ne 0) { throw 'MSVC compilation failed' }
+
+      - name: Verify native binaries
+        run: |
+          $exe = 'build-msvc/Release/synchrorep.exe'
+          $explorer = 'build-msvc/Release/SynchrorepExplorer.dll'
+          foreach ($file in @($exe, $explorer)) {
+            if (-not (Test-Path $file)) { throw "Missing expected binary: $file" }
+            Get-FileHash $file -Algorithm SHA256 | Format-List
+          }
+          & $exe --check-runtime
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime self-check failed' }
+
+      - name: Execute native CTest suite
         run: |
           ctest --test-dir build-msvc -C Release --output-on-failure --timeout 120
-          if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
-      - name: Upload diagnostics
+          if ($LASTEXITCODE -ne 0) { throw 'Native Windows tests failed' }
+
+      - name: Preserve diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: windows-logs-${{ matrix.os }}
-          path: build-msvc/Testing/Temporary/
+          name: native-test-diagnostics-${{ matrix.os }}
+          path: |
+            build-msvc/CMakeFiles/CMakeConfigureLog.yaml
+            build-msvc/CMakeFiles/CMakeOutput.log
+            build-msvc/CMakeFiles/CMakeError.log
+            build-msvc/Testing/Temporary/
           if-no-files-found: ignore
+          retention-days: 7
