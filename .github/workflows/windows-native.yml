@@ -104,8 +104,7 @@ jobs:
           }
           $version = $Matches[1]
           $filename = "synchrorep-windows-$version-x64.msi"
-          $encoded = [uri]::EscapeDataString("build-win/$filename")
-          $url = "https://git.small-project.dev/api/v4/projects/665/jobs/artifacts/main/raw/$encoded?job=windows-mingw"
+          $url = "https://git.small-project.dev/api/v4/projects/665/jobs/artifacts/main/raw/build-win/$filename?job=windows-mingw"
           $target = Join-Path $env:RUNNER_TEMP 'synchrorep.msi'
           Invoke-WebRequest -Uri $url -OutFile $target -MaximumRedirection 3
           $item = Get-Item $target
