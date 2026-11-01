@@ -4,7 +4,7 @@
      are injected from the checksum-verified Windows curl dependency set. -->
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Product Id="*" Name="Synchrorep" Manufacturer="Synchrorep contributors"
-           Version="0.13.8" Language="1033"
+           Version="1.0.0" Language="1033"
            UpgradeCode="E7933186-3749-4B61-AD35-68A48EB337CD">
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"/>
     <MajorUpgrade DowngradeErrorMessage="A newer Synchrorep version is already installed."/>

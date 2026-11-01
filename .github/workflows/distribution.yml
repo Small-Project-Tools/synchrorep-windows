@@ -59,15 +59,15 @@ jobs:
           cmake -S . -B build-win -DSYNCHROREP_REMOTE=ON -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++-posix -DCURL_INCLUDE_DIR="$GITHUB_WORKSPACE/build-msys2/win64/include" -DCURL_LIBRARY="$GITHUB_WORKSPACE/build-msys2/win64/lib/libcurl.dll.a" -DSQLite3_INCLUDE_DIR="$GITHUB_WORKSPACE/build-msys2/win64/include" -DSQLite3_LIBRARY="$GITHUB_WORKSPACE/build-msys2/win64/lib/libsqlite3.dll.a"
           cmake --build build-win --target synchrorep synchrorep_ui_tests engine_tests state_transitions_tests sqlite_history_tests sqlite_migration_tests explorer_launch_tests remote_tests windows_transport_tests sha256_tests profiles_tests recovery_tests recovery_catalog_tests recycle_bin_tests mirror_tests startup_tests startup_registry_tests windows_args_tests synchrorep_explorer_command explorer_command_tests icon_resource_tests --parallel 2
           python3 scripts/stage_windows_runtime.py --prefix build-msys2/win64 --build build-win
-          python3 scripts/render_windows_installer.py --build build-win --version 0.13.8
+          python3 scripts/render_windows_installer.py --build build-win --version 1.0.0
           python3 tests/windows_installer_test.py --build build-win
-          python3 scripts/package_windows_portable.py --build build-win --version 0.13.8
-          python3 tests/windows_portable_test.py --build build-win --version 0.13.8
+          python3 scripts/package_windows_portable.py --build build-win --version 1.0.0
+          python3 tests/windows_portable_test.py --build build-win --version 1.0.0
           x86_64-w64-mingw32-objdump -p build-win/synchrorep.exe | grep 'libcurl-4.dll'
           x86_64-w64-mingw32-objdump -p build-win/SynchrorepExplorer.dll | grep 'DllGetClassObject'
           x86_64-w64-mingw32-objdump -p build-win/SynchrorepExplorer.dll | grep 'DllCanUnloadNow'
-          wixl -a x64 -D SourceExe=build-win/synchrorep.exe -D SourceExplorerDll=build-win/SynchrorepExplorer.dll -D SourceLicense=LICENSE -D SourceNotices=build-win/THIRD_PARTY_NOTICES.txt -D SourceIcon=assets/synchrorep.ico -D RuntimeDir=build-win -o build-win/synchrorep-windows-0.13.8-x64.msi build-win/Synchrorep.wxs
-          python3 tests/packaged_msi_test.py --build build-win --version 0.13.8
+          wixl -a x64 -D SourceExe=build-win/synchrorep.exe -D SourceExplorerDll=build-win/SynchrorepExplorer.dll -D SourceLicense=LICENSE -D SourceNotices=build-win/THIRD_PARTY_NOTICES.txt -D SourceIcon=assets/synchrorep.ico -D RuntimeDir=build-win -o build-win/synchrorep-windows-1.0.0-x64.msi build-win/Synchrorep.wxs
+          python3 tests/packaged_msi_test.py --build build-win --version 1.0.0
           python3 tests/installer_manifest_test.py
           python3 tests/icon_assets_test.py
       - name: Upload exact Windows distribution and Wine test binaries
@@ -121,7 +121,7 @@ jobs:
           done
           export SYNCHROREP_TEST_WINDOWS=1
           xvfb-run -a bash tests/integration/run.sh
-          xvfb-run -a wine msiexec /i build-win/synchrorep-windows-0.13.8-x64.msi /qn
+          xvfb-run -a wine msiexec /i build-win/synchrorep-windows-1.0.0-x64.msi /qn
           export SYNCHROREP_EXE="$WINEPREFIX/drive_c/Program Files/Synchrorep/synchrorep.exe"
           test -f "$SYNCHROREP_EXE"
           cmp build-win/synchrorep.exe "$SYNCHROREP_EXE"
@@ -130,12 +130,12 @@ jobs:
             cmp "build-win/$dll" "$WINEPREFIX/drive_c/Program Files/Synchrorep/$dll"
           done < build-win/windows-dlls.txt
           xvfb-run -a wine "$SYNCHROREP_EXE" --check-runtime
-          python3 -m zipfile -e build-win/synchrorep-windows-0.13.8-x64-portable.zip portable-test
-          xvfb-run -a wine portable-test/Synchrorep-0.13.8/synchrorep.exe --check-runtime
+          python3 -m zipfile -e build-win/synchrorep-windows-1.0.0-x64-portable.zip portable-test
+          xvfb-run -a wine portable-test/Synchrorep-1.0.0/synchrorep.exe --check-runtime
           xvfb-run -a bash tests/wine_explorer_picker_smoke.sh
           xvfb-run -a bash tests/wine_explorer_menu_smoke.sh installed
           xvfb-run -a bash tests/wine_autostart_smoke.sh
-          xvfb-run -a wine msiexec /x build-win/synchrorep-windows-0.13.8-x64.msi /qn
+          xvfb-run -a wine msiexec /x build-win/synchrorep-windows-1.0.0-x64.msi /qn
           test ! -e "$SYNCHROREP_EXE"
           xvfb-run -a bash tests/wine_explorer_menu_smoke.sh removed
           mkdir -p isolated-exe
@@ -157,7 +157,7 @@ jobs:
           path: build-win
       - name: Install and uninstall GitHub-produced MSI
         shell: pwsh
-        run: ./scripts/test_windows_msi.ps1 -MsiPath 'build-win/synchrorep-windows-0.13.8-x64.msi'
+        run: ./scripts/test_windows_msi.ps1 -MsiPath 'build-win/synchrorep-windows-1.0.0-x64.msi'
       - name: Preserve installer logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -178,9 +178,45 @@ jobs:
           path: build-win
       - name: Package unsigned sparse MSIX
         shell: pwsh
-        run: ./windows/sparse/package.ps1 -ApplicationDirectory 'build-win' -Output 'Synchrorep.Windows.0.13.8.sparse-unsigned.msix'
+        run: ./windows/sparse/package.ps1 -ApplicationDirectory 'build-win' -Output 'Synchrorep.Windows.1.0.0.sparse-unsigned.msix'
       - uses: actions/upload-artifact@v4
         with:
           name: sparse-unsigned-msix
-          path: Synchrorep.Windows.0.13.8.sparse-unsigned.msix
+          path: Synchrorep.Windows.1.0.0.sparse-unsigned.msix
           if-no-files-found: error
+
+  prerelease:
+    name: Publish 1.0.0-RC1 prerelease
+    needs: [windows-wine-smoke, windows-msi-install]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-mingw-distribution
+          path: build-win
+      - name: Publish signed-off release artifacts as GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag='1.0.0-RC1'
+          grep -q 'project(synchrorep_windows VERSION 1.0.0 ' CMakeLists.txt
+          test -s build-win/synchrorep-windows-1.0.0-x64.msi
+          test -s build-win/synchrorep-windows-1.0.0-x64-portable.zip
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $tag already exists; not overwriting it."
+            exit 0
+          fi
+          gh release create "$tag" \
+            build-win/synchrorep-windows-1.0.0-x64.msi \
+            build-win/synchrorep-windows-1.0.0-x64-portable.zip \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Synchrorep 1.0.0-RC1" \
+            --prerelease \
+            --notes "Windows 11 release candidate. Includes bidirectional and continuous mirror synchronization, local/FTP/SFTP/WSL destinations, Explorer integration and a self-contained MSI or portable archive. Automated validation: Linux, MSVC Windows 2022/2025, MinGW, Wine, MSI install/uninstall. GNU GPL v3; Copyright (C) 2026 Sébastien Kus. Binaries are currently unsigned."
