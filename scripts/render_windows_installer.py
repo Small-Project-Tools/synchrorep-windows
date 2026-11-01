@@ -23,7 +23,7 @@ def main():
     template=args.template.read_text()
     if '<!-- RUNTIME_COMPONENTS -->' not in template or '<!-- RUNTIME_REFS -->' not in template:
         raise ValueError("Missing runtime component insertion points")
-    template=re.sub(r'(<Product\\b[^>]*\\bVersion=")[0-9]+\\.[0-9]+\\.[0-9]+(")',lambda m: m.group(1)+args.version+m.group(2),template,count=1)
+    template=re.sub(r'Version="[0-9]+\.[0-9]+\.[0-9]+"',f'Version="{args.version}"',template,count=1)
     template=template.replace('Product Id="*"',
         f'Product Id="{guid("Product/"+args.version)}"')
     template=template.replace('''<Component Id="ThirdPartyNotices" Guid="*">''',
