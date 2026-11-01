@@ -1,0 +1,180 @@
+name: Cross-platform validation and Windows distribution
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: distribution-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  policy:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tests/signpath_policy_test.py
+
+  linux-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y cmake g++ libcurl4-openssl-dev libsqlite3-dev python3-pyftpdlib python3-paramiko
+      - name: Build and run native tests
+        run: |
+          cmake -S . -B build-remote -DSYNCHROREP_REMOTE=ON -DCMAKE_BUILD_TYPE=Debug '-DCMAKE_CXX_FLAGS=-Wall -Wextra -Wpedantic -Werror'
+          cmake --build build-remote --parallel 2
+          ctest --test-dir build-remote --output-on-failure
+          python3 tests/windows_runtime_closure_test.py
+          python3 tests/installer_manifest_test.py
+          python3 tests/sparse_manifest_test.py
+          python3 tests/icon_assets_test.py
+          bash tests/integration/run.sh
+
+  windows-mingw:
+    needs: [policy, linux-tests]
+    runs-on: ubuntu-24.04
+    container: debian:bookworm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MinGW and packaging tools
+        run: |
+          apt-get update -qq
+          apt-get install -y cmake g++-mingw-w64-x86-64-posix wixl msitools python3 zstd git ca-certificates
+      - name: Cross-compile full Windows distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/fetch_windows_curl.py --output build-msys2/win64 --cache build-msys2/cache
+          cmake -S . -B build-win -DSYNCHROREP_REMOTE=ON -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++-posix -DCURL_INCLUDE_DIR="$GITHUB_WORKSPACE/build-msys2/win64/include" -DCURL_LIBRARY="$GITHUB_WORKSPACE/build-msys2/win64/lib/libcurl.dll.a" -DSQLite3_INCLUDE_DIR="$GITHUB_WORKSPACE/build-msys2/win64/include" -DSQLite3_LIBRARY="$GITHUB_WORKSPACE/build-msys2/win64/lib/libsqlite3.dll.a"
+          cmake --build build-win --target synchrorep synchrorep_ui_tests engine_tests state_transitions_tests sqlite_history_tests sqlite_migration_tests explorer_launch_tests remote_tests windows_transport_tests sha256_tests profiles_tests recovery_tests recovery_catalog_tests recycle_bin_tests mirror_tests startup_tests startup_registry_tests windows_args_tests synchrorep_explorer_command explorer_command_tests icon_resource_tests --parallel 2
+          python3 scripts/stage_windows_runtime.py --prefix build-msys2/win64 --build build-win
+          python3 scripts/render_windows_installer.py --build build-win --version 0.13.8
+          python3 tests/windows_installer_test.py --build build-win
+          python3 scripts/package_windows_portable.py --build build-win --version 0.13.8
+          python3 tests/windows_portable_test.py --build build-win --version 0.13.8
+          x86_64-w64-mingw32-objdump -p build-win/synchrorep.exe | grep 'libcurl-4.dll'
+          x86_64-w64-mingw32-objdump -p build-win/SynchrorepExplorer.dll | grep 'DllGetClassObject'
+          x86_64-w64-mingw32-objdump -p build-win/SynchrorepExplorer.dll | grep 'DllCanUnloadNow'
+          wixl -a x64 -D SourceExe=build-win/synchrorep.exe -D SourceExplorerDll=build-win/SynchrorepExplorer.dll -D SourceLicense=LICENSE -D SourceNotices=build-win/THIRD_PARTY_NOTICES.txt -D SourceIcon=assets/synchrorep.ico -D RuntimeDir=build-win -o build-win/synchrorep-windows-0.13.8-x64.msi build-win/Synchrorep.wxs
+          python3 tests/packaged_msi_test.py --build build-win --version 0.13.8
+          python3 tests/installer_manifest_test.py
+          python3 tests/icon_assets_test.py
+      - name: Upload exact Windows distribution and Wine test binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-mingw-distribution
+          path: |
+            build-win/*.msi
+            build-win/*.zip
+            build-win/*.exe
+            build-win/*.dll
+            build-win/windows-dlls.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  windows-wine-smoke:
+    needs: windows-mingw
+    runs-on: ubuntu-24.04
+    container: debian:bookworm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Wine test dependencies
+        run: |
+          apt-get update -qq
+          apt-get install -y wine wine64 xvfb xdotool python3 python3-pyftpdlib python3-paramiko ca-certificates
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-mingw-distribution
+          path: build-win
+      - name: Exercise cross-compiled binaries, MSI, context menu and portable runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          export WINEPREFIX="$GITHUB_WORKSPACE/wine-ci" WINEDEBUG=-all
+          test -s build-win/windows_transport_tests.exe
+          test -s build-win/synchrorep.exe
+          test -s build-win/SynchrorepExplorer.dll
+          test -s build-win/windows-dlls.txt
+          while IFS= read -r dll; do test -s "build-win/$dll"; done < build-win/windows-dlls.txt
+          xvfb-run -a wineboot -u
+          xvfb-run -a wine build-win/windows_transport_tests.exe
+          export SYNCHROREP_INTERACTIVE_UI_PREVIEW=1
+          xvfb-run -a wine build-win/synchrorep_ui_tests.exe
+          unset SYNCHROREP_INTERACTIVE_UI_PREVIEW
+          for binary in profiles_tests state_transitions_tests engine_tests explorer_launch_tests startup_registry_tests recovery_tests icon_resource_tests explorer_command_tests; do
+            xvfb-run -a wine "build-win/$binary.exe"
+          done
+          export SYNCHROREP_TEST_WINDOWS=1
+          xvfb-run -a bash tests/integration/run.sh
+          xvfb-run -a wine msiexec /i build-win/synchrorep-windows-0.13.8-x64.msi /qn
+          export SYNCHROREP_EXE="$WINEPREFIX/drive_c/Program Files/Synchrorep/synchrorep.exe"
+          test -f "$SYNCHROREP_EXE"
+          cmp build-win/synchrorep.exe "$SYNCHROREP_EXE"
+          while IFS= read -r dll; do
+            test -s "$WINEPREFIX/drive_c/Program Files/Synchrorep/$dll"
+            cmp "build-win/$dll" "$WINEPREFIX/drive_c/Program Files/Synchrorep/$dll"
+          done < build-win/windows-dlls.txt
+          xvfb-run -a wine "$SYNCHROREP_EXE" --check-runtime
+          python3 -m zipfile -e build-win/synchrorep-windows-0.13.8-x64-portable.zip portable-test
+          xvfb-run -a wine portable-test/Synchrorep-0.13.8/synchrorep.exe --check-runtime
+          xvfb-run -a bash tests/wine_explorer_picker_smoke.sh
+          xvfb-run -a bash tests/wine_explorer_menu_smoke.sh installed
+          xvfb-run -a bash tests/wine_autostart_smoke.sh
+          xvfb-run -a wine msiexec /x build-win/synchrorep-windows-0.13.8-x64.msi /qn
+          test ! -e "$SYNCHROREP_EXE"
+          xvfb-run -a bash tests/wine_explorer_menu_smoke.sh removed
+          mkdir -p isolated-exe
+          cp build-win/synchrorep.exe isolated-exe/
+          if xvfb-run -a wine isolated-exe/synchrorep.exe --check-runtime; then
+            echo "Bare executable unexpectedly passed missing-DLL runtime check"
+            exit 1
+          fi
+
+  windows-msi-install:
+    needs: windows-mingw
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-mingw-distribution
+          path: build-win
+      - name: Install and uninstall GitHub-produced MSI
+        shell: pwsh
+        run: ./scripts/test_windows_msi.ps1 -MsiPath 'build-win/synchrorep-windows-0.13.8-x64.msi'
+      - name: Preserve installer logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-msi-install-logs
+          path: ${{ runner.temp }}/synchrorep-msi-logs/
+          if-no-files-found: ignore
+
+  windows-sparse-unsigned:
+    needs: windows-mingw
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-mingw-distribution
+          path: build-win
+      - name: Package unsigned sparse MSIX
+        shell: pwsh
+        run: ./windows/sparse/package.ps1 -ApplicationDirectory 'build-win' -Output 'Synchrorep.Windows.0.13.8.sparse-unsigned.msix'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sparse-unsigned-msix
+          path: Synchrorep.Windows.0.13.8.sparse-unsigned.msix
+          if-no-files-found: error
