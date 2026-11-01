@@ -5,11 +5,6 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
-    inputs:
-      msi_url:
-        description: 'HTTPS URL for a CI-built MSI from git.small-project.dev (optional)'
-        required: false
-        type: string
 
 permissions:
   contents: read
@@ -92,25 +87,33 @@ jobs:
           retention-days: 7
 
   msi-smoke:
-    name: Real MSI installation / Windows 2025
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.msi_url != '' }}
+    name: GitLab MSI installation / Windows 2025
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
     runs-on: windows-2025
     timeout-minutes: 25
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - name: Download trusted MSI
+      - name: Download GitLab CI MSI for checked-out version
         shell: pwsh
-        env:
-          MSI_URL: ${{ inputs.msi_url }}
         run: |
-          $uri = [Uri]$env:MSI_URL
-          if ($uri.Scheme -ne 'https' -or $uri.Host -ne 'git.small-project.dev' -or
-              -not $uri.AbsolutePath.StartsWith('/pub/desktop/synchrorep-windows/')) {
-            throw 'Only HTTPS artifacts from the official Synchrorep GitLab repository are accepted'
+          $cmake = Get-Content CMakeLists.txt -Raw
+          if ($cmake -notmatch 'project\(synchrorep_windows VERSION (\d+\.\d+\.\d+)') {
+            throw 'Cannot determine Synchrorep version'
           }
-          Invoke-WebRequest -Uri $uri -OutFile "$env:RUNNER_TEMP/synchrorep.msi" -MaximumRedirection 3
+          $version = $Matches[1]
+          $filename = "synchrorep-windows-$version-x64.msi"
+          $encoded = [uri]::EscapeDataString("build-win/$filename")
+          $url = "https://git.small-project.dev/api/v4/projects/665/jobs/artifacts/main/raw/$encoded?job=windows-mingw"
+          $target = Join-Path $env:RUNNER_TEMP 'synchrorep.msi'
+          Invoke-WebRequest -Uri $url -OutFile $target -MaximumRedirection 3
+          $item = Get-Item $target
+          if ($item.Length -lt 100000) { throw "MSI is missing or suspiciously small ($($item.Length) bytes)" }
+          $firstBytes = [IO.File]::ReadAllBytes($target)[0..7]
+          if ([Convert]::ToHexString($firstBytes) -ne 'D0CF11E0A1B11AE1') { throw 'Downloaded artifact is not an MSI' }
+          Write-Output "MSI $filename downloaded; SHA256:"
+          Get-FileHash $target -Algorithm SHA256 | Format-List
       - name: Install, verify and uninstall MSI
         shell: pwsh
         run: |
