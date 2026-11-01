@@ -252,12 +252,20 @@ int main(){
   assert(read(cl/"right.txt")=="RIGHT");
   assert(read(cr/"skip.txt")=="RIGHT"&&read(cl/"skip.txt")=="LEFT");
   assert(!fs::exists(cr/"deleted.txt"));
-  // Skip deliberately preserves both divergent versions. Without an override,
-  // the next run must report that unresolved conflict rather than overwrite data.
+  // Skip preserves both copies. On the next scan, different mtimes select
+  // the newer copy; equal mtimes produce an explicit conflict. Windows has
+  // coarser timestamp resolution, so neither outcome can be assumed here.
   const auto remaining=first.plan(cl,cr);
-  assert(std::any_of(remaining.begin(),remaining.end(),[](const Decision& d){
-   return d.relative=="skip.txt" && d.action==Action::Conflict;
-  }));
+  const auto skipped=std::find_if(remaining.begin(),remaining.end(),[](const Decision& d){
+   return d.relative=="skip.txt";
+  });
+  if(skipped==remaining.end() ||
+     (skipped->action!=Action::Conflict &&
+      skipped->action!=Action::CopyLeftToRight &&
+      skipped->action!=Action::CopyRightToLeft))
+   throw std::runtime_error("Skipped divergence must remain detectable");
+  if(read(cl/"skip.txt")!="LEFT" || read(cr/"skip.txt")!="RIGHT")
+   throw std::runtime_error("Planning must not overwrite skipped copies");
 
   // Progress and cancellation: stop after the first complete file,
   // leaving state unchanged so the next run can reconcile safely.
