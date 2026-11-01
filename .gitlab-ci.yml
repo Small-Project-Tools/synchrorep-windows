@@ -105,6 +105,12 @@ windows-wine-smoke:
   - for dll in $(cat build-win/windows-dlls.txt); do test -s "build-win/$dll"; done
   - xvfb-run -a wineboot -u
   - xvfb-run -a wine build-win/windows_transport_tests.exe
+  # Regression suites intentionally avoid the interactive Windows Shell recycler.
+  # Do not run mirror_tests under Wine: the Wine winpthreads implementation
+  # cannot reliably execute std::async; native Windows CI runs that test.
+  - xvfb-run -a wine build-win/profiles_tests.exe
+  - xvfb-run -a wine build-win/state_transitions_tests.exe
+  - xvfb-run -a wine build-win/engine_tests.exe
   - xvfb-run -a wine build-win/explorer_launch_tests.exe
   - xvfb-run -a wine build-win/startup_registry_tests.exe
   - xvfb-run -a wine build-win/recovery_tests.exe

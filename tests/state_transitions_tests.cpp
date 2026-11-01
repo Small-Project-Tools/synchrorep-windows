@@ -19,7 +19,9 @@ int main(){
    std::chrono::steady_clock::now().time_since_epoch().count()));
  try{
   auto l=base/"left",r=base/"right";fs::create_directories(l);fs::create_directories(r);
-  Engine engine(base/"history.state");
+  Options safe;
+  safe.recycle_local_deletions=false; // Native Recycle Bin needs an interactive Windows Shell.
+  Engine engine(base/"history.state",safe);
   write(l/"document.txt","initial");
   assert(decision(engine,l,r)==Action::CopyLeftToRight);
   assert(engine.run(l,r).copied==1);
@@ -43,7 +45,7 @@ int main(){
   assert(engine.run(l,r).copied==1);
   // Simultaneous equal-time divergent edits are conflicts when content hashes
   // establish an actual difference.
-  Options hash;hash.verify_hash=true;
+  Options hash;hash.verify_hash=true;hash.recycle_local_deletions=false;
   Engine verified(base/"history.state",hash);
   auto current=fs::last_write_time(l/"document.txt");
   write(l/"document.txt","1111");

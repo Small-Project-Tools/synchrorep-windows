@@ -20,6 +20,15 @@ static std::string read(const fs::path& p){
  return {std::istreambuf_iterator<char>(f),{}};
 }
 static bool throws(const auto& callable){try{callable();return false;}catch(const std::exception&){return true;}}
+// Most engine tests validate sync rules, not Windows Shell interactivity.
+Options no_native_recycle(Options options={}){
+ options.recycle_local_deletions=false;
+ return options;
+}
+struct EngineWithoutNativeRecycle final:Engine {
+ explicit EngineWithoutNativeRecycle(fs::path state,Options options={})
+ :Engine(std::move(state),no_native_recycle(std::move(options))){}
+};
 // Injectable fake of the Windows Shell recycler: exercises engine policy
 // without needing a GUI or an actual Windows Recycle Bin in CI.
 struct TestRecyclingEndpoint final:Endpoint {
@@ -53,7 +62,7 @@ int main(){
  const auto root=fs::temp_directory_path()/("synchrorep-test-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
  auto a=root/"a",b=root/"b",c=root/"c";fs::create_directories(a);fs::create_directories(b);fs::create_directories(c);
  try {
-  Engine e(root/"state"/"history.txt",Options{ConflictPolicy::Ask,true,{},false,true,false});
+  EngineWithoutNativeRecycle e(root/"state"/"history.txt",Options{ConflictPolicy::Ask,true,{},false,true,false});
   write(a/"file.txt","a");assert(e.run(a,b).copied==1);
   assert(read(b/"file.txt")=="a");assert(e.run(a,b).copied==0);
   write(b/"only-right.txt","right");assert(e.run(a,b).copied==1);
@@ -64,7 +73,7 @@ int main(){
   assert(e.run(a,b).conflicts.size()==1);
   assert(read(a/"conflict.txt")=="LEFT"&&read(b/"conflict.txt")=="RIGHT");
   // Preserve original state for skipped conflicts rather than learning changes.
-  Engine ignoring(root/"state"/"history.txt",{ConflictPolicy::Ignore,true});
+  EngineWithoutNativeRecycle ignoring(root/"state"/"history.txt",{ConflictPolicy::Ignore,true});
   write(a/"safe.txt","SAFE");
   auto partial=ignoring.run(a,b);
   assert(partial.conflicts.size()==1&&read(b/"safe.txt")=="SAFE");
@@ -77,7 +86,7 @@ int main(){
   assert(throws([&]{e.run(a,c);}));
   assert(throws([&]{e.run(a,a);}));
   assert(throws([&]{e.run(a,a/"child");}));
-  assert(throws([&]{Engine(a/"state.txt").run(a,b);}));
+  assert(throws([&]{EngineWithoutNativeRecycle(a/"state.txt").run(a,b);}));
   assert(throws([&]{open_endpoint("sftp://example.org/home");}));
   assert(endpoint_kind("ftp://host/path")==EndpointKind::Ftp);
   assert(endpoint_kind("sftp://host/path")==EndpointKind::Sftp);
@@ -89,19 +98,19 @@ int main(){
   // Both files present before the first run: identical content is safe.
   auto x=root/"x",y=root/"y";fs::create_directories(x);fs::create_directories(y);
   write(x/"same.txt","MATCH");write(y/"same.txt","MATCH");
-  Engine fresh(root/"state"/"fresh.txt");
+  EngineWithoutNativeRecycle fresh(root/"state"/"fresh.txt");
   assert(fresh.run(x,y).conflicts.empty());
   write(x/"same.txt","DIFFERENT-LEFT");write(y/"same.txt","OTHER-RIGHT");
   assert(fresh.run(x,y).conflicts.size()==1);
   // One-sided deletion is propagated, but not when the other side changed.
   auto p=root/"p",q=root/"q";fs::create_directories(p);fs::create_directories(q);
-  Engine deletion(root/"state"/"deletion.txt");
+  EngineWithoutNativeRecycle deletion(root/"state"/"deletion.txt");
   write(p/"gone.txt","hello");deletion.run(p,q);fs::remove(p/"gone.txt");
   write(q/"gone.txt","updated on other side");
   assert(deletion.run(p,q).conflicts.size()==1);
   assert(fs::exists(q/"gone.txt"));
   // Safer policy: restore a deleted file when propagation is switched off.
-  Engine restore(root/"state"/"restore.txt",{ConflictPolicy::Ask,false});
+  EngineWithoutNativeRecycle restore(root/"state"/"restore.txt",{ConflictPolicy::Ask,false});
   write(p/"restore.txt","hello");restore.run(p,q);fs::remove(p/"restore.txt");
   assert(restore.run(p,q).copied==1);assert(read(p/"restore.txt")=="hello");
   // Files in nested directories and directory timestamp changes.
@@ -110,7 +119,7 @@ int main(){
   // Dry-run never creates a history snapshot or copies anything.
   auto u=root/"u",v=root/"v";fs::create_directories(u);fs::create_directories(v);
   write(u/"dry.txt","NEW");
-  Engine dry(root/"state"/"dry.state");
+  EngineWithoutNativeRecycle dry(root/"state"/"dry.state");
   assert(dry.run(u,v,true).copied==0);
   assert(!fs::exists(v/"dry.txt"));
   assert(!fs::exists(root/"state"/"dry.state"));
@@ -118,7 +127,7 @@ int main(){
   // Newest and Oldest follow the original behavior enum for bilateral changes.
   auto n=root/"n",o=root/"o";fs::create_directories(n);fs::create_directories(o);
   write(n/"pick.txt","BASE");
-  Engine newest(root/"state"/"newest.state",{ConflictPolicy::Newest,true});
+  EngineWithoutNativeRecycle newest(root/"state"/"newest.state",{ConflictPolicy::Newest,true});
   assert(newest.run(n,o).copied==1);
   write(n/"pick.txt","LEFT-CHANGED");write(o/"pick.txt","RIGHT-CHANGED");
   const auto t=fs::last_write_time(n/"pick.txt");
@@ -127,13 +136,13 @@ int main(){
   assert(read(n/"pick.txt")=="RIGHT-CHANGED");
   write(n/"pick.txt","LEFT-AGAIN");write(o/"pick.txt","RIGHT-AGAIN");
   fs::last_write_time(o/"pick.txt",fs::last_write_time(n/"pick.txt")+std::chrono::hours(1));
-  Engine oldest(root/"state"/"newest.state",{ConflictPolicy::Oldest,true});
+  EngineWithoutNativeRecycle oldest(root/"state"/"newest.state",{ConflictPolicy::Oldest,true});
   assert(oldest.run(n,o).copied==1);
   assert(read(n/"pick.txt")=="RIGHT-AGAIN");
   // Same byte length AND restored timestamp must still be detected.
   auto hz=root/"hz",hz2=root/"hz2";fs::create_directories(hz);fs::create_directories(hz2);
   Options fingerprintOptions;fingerprintOptions.verify_hash=true;fingerprintOptions.recycle_local_deletions=false;
-  Engine fingerprint(root/"state"/"fingerprint.state",fingerprintOptions);
+  EngineWithoutNativeRecycle fingerprint(root/"state"/"fingerprint.state",fingerprintOptions);
   write(hz/"touch.txt","AAAA");
   assert(fingerprint.run(hz,hz2).copied==1);
   auto oldtime=fs::last_write_time(hz/"touch.txt");
@@ -153,7 +162,7 @@ int main(){
   // Detect a changed file even when only its timestamp is restored,
   // preventing spurious delete-versus-update decisions.
   auto hx=root/"hx",hy=root/"hy";fs::create_directories(hx);fs::create_directories(hy);
-  Engine delhash(root/"state"/"delete-with-hash.state",fingerprintOptions);
+  EngineWithoutNativeRecycle delhash(root/"state"/"delete-with-hash.state",fingerprintOptions);
   write(hx/"file.txt","1111");
   assert(delhash.run(hx,hy).copied==1);
   auto t_before=fs::last_write_time(hy/"file.txt");
@@ -166,7 +175,7 @@ int main(){
   auto protectedLeft=root/"protected-left",protectedRight=root/"protected-right";
   fs::create_directories(protectedLeft);fs::create_directories(protectedRight);
   auto protectedState=root/"state"/"protected.state";
-  Engine protectedEngine(protectedState,fingerprintOptions);
+  EngineWithoutNativeRecycle protectedEngine(protectedState,fingerprintOptions);
   write(protectedLeft/"nested"/"data.txt","OLD-ORIGINAL");
   assert(protectedEngine.run(protectedLeft,protectedRight).copied>=1);
   write(protectedLeft/"nested"/"data.txt","NEW-CONTENTS");
@@ -206,7 +215,7 @@ int main(){
   auto optLeft=root/"opt-left",optRight=root/"opt-right";
   fs::create_directories(optLeft);fs::create_directories(optRight);
   auto optState=root/"state"/"without-backups.state";
-  Engine unprotected(optState,Options{ConflictPolicy::Ask,true,{},false,false});
+  EngineWithoutNativeRecycle unprotected(optState,Options{ConflictPolicy::Ask,true,{},false,false});
   write(optLeft/"record","before");
   unprotected.run(optLeft,optRight);
   write(optLeft/"record","after");
@@ -215,15 +224,15 @@ int main(){
   assert(!fs::exists(optState.parent_path()/"recovery"/optState.filename()));
   // Read-only scan never creates a recovery directory for its state.
   auto noArchiveState=root/"state"/"preview-only.state";
-  Engine noArchive(noArchiveState);
+  EngineWithoutNativeRecycle noArchive(noArchiveState);
   assert(noArchive.plan(protectedLeft,protectedRight).empty());
   assert(!fs::exists(noArchiveState.parent_path()/"recovery"/noArchiveState.filename()));
   // Previous history formats cannot be silently mistaken for SHA-256 state.
   write(root/"state"/"legacy.state","SYNCHROREP3\\n");
-  assert(throws([&]{Engine(root/"state"/"legacy.state").plan(hz,hz2);}));
+  assert(throws([&]{EngineWithoutNativeRecycle(root/"state"/"legacy.state").plan(hz,hz2);}));
   // Resolve different simultaneous edits with explicit per-file choices.
   auto cl=root/"cl",cr=root/"cr";fs::create_directories(cl);fs::create_directories(cr);
-  Engine first(root/"state"/"resolution.state");
+  EngineWithoutNativeRecycle first(root/"state"/"resolution.state");
   write(cl/"left.txt","base");write(cl/"right.txt","base");
   write(cl/"skip.txt","base");write(cl/"deleted.txt","base");
   assert(first.run(cl,cr).copied==4);
@@ -234,7 +243,7 @@ int main(){
   std::map<std::string,ConflictChoice> chosen{{"left.txt",ConflictChoice::KeepLeft},
    {"right.txt",ConflictChoice::KeepRight},{"skip.txt",ConflictChoice::Skip},
    {"deleted.txt",ConflictChoice::KeepLeft}};
-  Engine resolved(root/"state"/"resolution.state",Options{ConflictPolicy::Ask,true,chosen});
+  EngineWithoutNativeRecycle resolved(root/"state"/"resolution.state",Options{ConflictPolicy::Ask,true,chosen});
   auto planned=resolved.plan(cl,cr);
   assert(std::none_of(planned.begin(),planned.end(),[](const Decision& d){return d.action==Action::Conflict;}));
   auto applied=resolved.run(cl,cr);
@@ -251,7 +260,7 @@ int main(){
   fs::create_directories(cancelA);fs::create_directories(cancelB);
   write(cancelA/"a.txt","one");write(cancelA/"b.txt","two");
   auto cancelState=root/"state"/"cancel.state";
-  Engine cancellable(cancelState);
+  EngineWithoutNativeRecycle cancellable(cancelState);
   bool stop=false;
   std::vector<Progress> reported;
   RunCallbacks callbacks;
@@ -273,7 +282,7 @@ int main(){
   assert(throws([&]{cancellable.run(cancelA,cancelB);}));
   auto preview=cancellable.plan(cancelA,cancelB);
   assert(!preview.empty());
-  Engine recovery(cancelState,Options{ConflictPolicy::Ask,true,{},true});
+  EngineWithoutNativeRecycle recovery(cancelState,Options{ConflictPolicy::Ask,true,{},true});
   assert(recovery.run(cancelA,cancelB).conflicts.empty());
   assert(!recovery.has_pending_recovery());
   assert(read(cancelB/"b.txt")=="two");
@@ -283,7 +292,7 @@ int main(){
   auto scanL=root/"scan-cancel-l",scanR=root/"scan-cancel-r";
   fs::create_directories(scanL);fs::create_directories(scanR);
   write(scanL/"a","first");write(scanL/"b","second");
-  Engine scanEngine(root/"state"/"scan-cancel.state");
+  EngineWithoutNativeRecycle scanEngine(root/"state"/"scan-cancel.state");
   bool stopScan=false;
   RunCallbacks scanCallbacks{
    [&]{return stopScan;},
@@ -295,7 +304,7 @@ int main(){
   assert(!scanEngine.has_pending_recovery());
   // The recovery journal is specific to its ordered pair of endpoints.
   auto pairState=root/"state"/"mismatch.state";
-  Engine wrongPair(pairState);
+  EngineWithoutNativeRecycle wrongPair(pairState);
   write(scanL/"will-cancel","test");
   bool stopAfter=false;
   RunCallbacks afterFirst{{[&]{return stopAfter;}},[&](const Progress& p){
@@ -303,15 +312,15 @@ int main(){
   }};
   assert(throws([&]{wrongPair.run(scanL,scanR,false,afterFirst);}));
   assert(wrongPair.has_pending_recovery());
-  assert(throws([&]{Engine(pairState,Options{ConflictPolicy::Ask,true,{},true}).run(a,b);}));
+  assert(throws([&]{EngineWithoutNativeRecycle(pairState,Options{ConflictPolicy::Ask,true,{},true}).run(a,b);}));
   assert(wrongPair.has_pending_recovery());
-  Engine correctPair(pairState,Options{ConflictPolicy::Ask,true,{},true});
+  EngineWithoutNativeRecycle correctPair(pairState,Options{ConflictPolicy::Ask,true,{},true});
   assert(correctPair.run(scanL,scanR).conflicts.empty());
   assert(!correctPair.has_pending_recovery());
   // The journal must fail closed if the metadata is tampered with.
   auto corruptState=root/"state"/"corrupt-journal.state";
   write(root/"state"/"corrupt-journal.state.journal","INVALID HEADER\n");
-  assert(throws([&]{Engine(corruptState,Options{ConflictPolicy::Ask,true,{},true}).run(scanL,scanR);}));
+  assert(throws([&]{EngineWithoutNativeRecycle(corruptState,Options{ConflictPolicy::Ask,true,{},true}).run(scanL,scanR);}));
   // An orphaned local temporary upload must fail closed, not sync junk.
   write(scanL/"user.bin.synchrorep-write-12345.tmp","partial");
   assert(throws([&]{correctPair.plan(scanL,scanR);}));
@@ -369,7 +378,7 @@ int main(){
 #endif
   // A malformed history or a symlink in the tree must fail closed.
   write(root/"state"/"bad.state","INVALID-HEADER\n");
-  assert(throws([&]{Engine(root/"state"/"bad.state").run(u,v);}));
+  assert(throws([&]{EngineWithoutNativeRecycle(root/"state"/"bad.state").run(u,v);}));
 #ifndef _WIN32
   fs::create_symlink(u/"dry.txt",v/"link.txt");
   assert(throws([&]{dry.run(u,v);}));
