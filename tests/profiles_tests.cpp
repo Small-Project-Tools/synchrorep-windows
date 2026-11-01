@@ -1,5 +1,9 @@
 #include "synchrorep/profiles.hpp"
-#include <cassert>
+#include <stdexcept>
+#define assert(expression) do { \
+ if (!(expression)) throw std::runtime_error("Assertion failed at line " + \
+ std::to_string(__LINE__) + ": " #expression); \
+} while (false)
 #include <chrono>
 #include <fstream>
 #include <iostream>
