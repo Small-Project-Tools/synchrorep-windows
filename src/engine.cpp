@@ -393,9 +393,9 @@ void ensure_distinct(const Endpoint& left,const Endpoint& right,const fs::path& 
  auto l=dynamic_cast<const LocalEndpoint*>(&left);
  auto r=dynamic_cast<const LocalEndpoint*>(&right);
  if(l&&r){
-  auto a=fs::weakly_canonical(l->root()),b=fs::weakly_canonical(r->root());
+  auto a=canonical_endpoint_path(l->root()),b=canonical_endpoint_path(r->root());
   if(is_nested(a,b))throw std::runtime_error("Nested synchronization directories are unsafe");
-  auto s=fs::weakly_canonical(state);
+  auto s=canonical_endpoint_path(state);
   if(is_nested(a,s)||is_nested(b,s))throw std::runtime_error("History must be outside synchronized directories");
  }
 }
@@ -417,10 +417,10 @@ std::string unique_run_id(){
    +"-"+std::to_string(++serial);
 }
 void ensure_external(const fs::path& archive,const Endpoint& left,const Endpoint& right){
- auto location=fs::weakly_canonical(archive);
+ auto location=canonical_endpoint_path(archive);
  for(const auto* endpoint:{&left,&right}){
   auto local=dynamic_cast<const LocalEndpoint*>(endpoint);
-  if(local && is_nested(fs::weakly_canonical(local->root()),location))
+  if(local && is_nested(canonical_endpoint_path(local->root()),location))
    throw std::runtime_error("Recovery archive must be outside synchronized roots");
  }
 }

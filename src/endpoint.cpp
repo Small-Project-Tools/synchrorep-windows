@@ -129,6 +129,48 @@ fs::path normalize_endpoint_root(fs::path root) {
 #endif
  return fs::absolute(std::move(root)).lexically_normal();
 }
+// MSVC handles UNC in std::filesystem, but MinGW's weakly_canonical()
+// can prefix the working drive to \\server\share and fail for WSL. Keep
+// filesystem safety checks by resolving every existing UNC directory with
+// a Windows handle when the share supports it; otherwise use GetFullPathNameW
+// which resolves dot segments without losing the network root.
+fs::path canonical_endpoint_path(const fs::path& path) {
+#ifdef _WIN32
+ const auto native=path.native();
+ const bool unc=native.size()>=2 &&
+   (native[0]==L'\\' || native[0]==L'/') &&
+   (native[1]==L'\\' || native[1]==L'/');
+ if(unc) {
+  const auto normalized=normalize_endpoint_root(path);
+  const HANDLE handle=CreateFileW(normalized.c_str(),FILE_READ_ATTRIBUTES,
+    FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,
+    OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS,nullptr);
+  if(handle!=INVALID_HANDLE_VALUE) {
+   const DWORD needed=GetFinalPathNameByHandleW(handle,nullptr,0,
+                                                 FILE_NAME_NORMALIZED|VOLUME_NAME_DOS);
+   if(needed>0 && needed<32767) {
+    std::wstring value(needed+1,L'\0');
+    const DWORD got=GetFinalPathNameByHandleW(handle,value.data(),
+                           static_cast<DWORD>(value.size()),
+                           FILE_NAME_NORMALIZED|VOLUME_NAME_DOS);
+    CloseHandle(handle);
+    if(got==needed) {
+     value.resize(got);
+     constexpr wchar_t uncPrefix[]=L"\\\\?\\UNC\\";
+     if(value.rfind(uncPrefix,0)==0)
+      return fs::path(L"\\\\"+value.substr(8));
+     constexpr wchar_t extendedPrefix[]=L"\\\\?\\";
+     if(value.rfind(extendedPrefix,0)==0)
+      return fs::path(value.substr(4));
+     return fs::path(std::move(value));
+    }
+   }else CloseHandle(handle);
+  }
+  return normalized;
+ }
+#endif
+ return fs::weakly_canonical(path);
+}
 LocalEndpoint::LocalEndpoint(fs::path root) : root_(normalize_endpoint_root(std::move(root))) {
  if(fs::is_symlink(fs::symlink_status(root_)))throw std::runtime_error("Directory root must not be a symbolic link");
  if(!fs::is_directory(root_))throw std::runtime_error("Directory does not exist: "+root_.string());

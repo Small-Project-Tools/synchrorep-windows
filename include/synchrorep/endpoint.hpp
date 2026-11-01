@@ -63,5 +63,7 @@ private:
 enum class EndpointKind { Local, Wsl, Ftp, Sftp };
 EndpointKind endpoint_kind(const std::string& location);
 fs::path wsl_unc_path(const std::string& uri);
+// Preserve UNC/WSL network roots on MinGW; resolve local reparse points.
+fs::path canonical_endpoint_path(const fs::path& path);
 std::unique_ptr<Endpoint> open_endpoint(const std::string& location);
 }

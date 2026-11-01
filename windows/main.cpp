@@ -1080,8 +1080,8 @@ void beginExplorerSynchronization(HWND window,const std::wstring& sourcePath){
   throw std::runtime_error("Selected destination must be an existing directory");
  // Resolve junctions/reparse points so two nested aliases cannot start
  // a recursive synchronization, even if lexical paths look different.
- const auto canonicalSource=std::filesystem::canonical(source);
- const auto canonicalTarget=std::filesystem::canonical(target);
+ const auto canonicalSource=canonical_endpoint_path(source);
+ const auto canonicalTarget=canonical_endpoint_path(target);
  if(mirror_targets_overlap(toUtf8(canonicalSource.wstring()),
                             toUtf8(canonicalTarget.wstring())))
   throw std::runtime_error("Source and destination must be different, non-nested folders");

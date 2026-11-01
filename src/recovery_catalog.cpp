@@ -107,8 +107,8 @@ fs::path RecoveryCatalog::export_item(const RecoveryItem& item,const fs::path& d
  no_symlinks(destination_root);
  if(!fs::is_directory(destination_root))
   throw std::runtime_error("Export destination must be an existing directory");
- const auto archive=fs::weakly_canonical(item.archive_side);
- const auto dest=fs::weakly_canonical(destination_root);
+ const auto archive=canonical_endpoint_path(item.archive_side);
+ const auto dest=canonical_endpoint_path(destination_root);
  auto path_under=[](const fs::path& a,const fs::path& b){
   auto i=a.begin(),j=b.begin();
   while(i!=a.end()&&j!=b.end()&&*i==*j){++i;++j;}
