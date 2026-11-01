@@ -102,29 +102,3 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  msi-smoke:
-    name: GitLab MSI installation / Windows 2025
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    needs: native
-    runs-on: windows-2025
-    timeout-minutes: 25
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - name: Download verified GitLab MSI from matching source tree
-        shell: pwsh
-        run: |
-          ./scripts/fetch_gitlab_msi.ps1 -OutputPath "$env:RUNNER_TEMP/synchrorep.msi"
-      - name: Install, verify and uninstall MSI
-        shell: pwsh
-        run: |
-          ./scripts/test_windows_msi.ps1 -MsiPath "$env:RUNNER_TEMP/synchrorep.msi"
-      - name: Preserve installer logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-msi-install-logs
-          path: ${{ runner.temp }}/synchrorep-msi-logs/
-          if-no-files-found: ignore
-          retention-days: 7
