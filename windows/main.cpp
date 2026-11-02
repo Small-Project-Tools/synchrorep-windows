@@ -655,8 +655,24 @@ void onFinished(std::unique_ptr<synchrorep::winui::FinishedEvent> result){
   MessageBoxW(syncWindow?syncWindow:mainWindow,L"Cancelled. Completed transfers are preserved. The next run will reconcile them.",
               L"Synchrorep",MB_OK|MB_ICONWARNING);
  }else if(!result->error.empty()){
-  set(IdStatus,L"Operation failed or conflicts unresolved.");
-  MessageBoxA(syncWindow?syncWindow:mainWindow,result->error.c_str(),"Synchrorep",MB_OK|MB_ICONERROR);
+  if(result->error.find("Previous run interrupted")!=std::string::npos){
+   set(IdStatus,L"Interrupted run detected; review Preview and enable recovery explicitly.");
+   // Preserve the journal and require the existing explicit recovery opt-in.
+   // Expose its location in the UI instead of presenting an unhelpful error.
+   settingsPane=SettingsPane::Behavior;
+   showTab(MainTab::Settings);
+   MessageBoxW(mainWindow,
+    L"A previous synchronization was interrupted. Its recovery journal is preserved.\n\n"
+    L"1. Run Preview to review transfers and deletions.\n"
+    L"2. Open Settings > Behavior & integration.\n"
+    L"3. Enable 'Resume interrupted runs (rescan and reconcile)'.\n"
+    L"4. Start synchronization only after reviewing the plan.\n\n"
+    L"Do not delete recovery journals manually.",
+    L"Explicit recovery approval required",MB_OK|MB_ICONWARNING);
+  }else{
+   set(IdStatus,L"Operation failed or conflicts unresolved.");
+   MessageBoxA(syncWindow?syncWindow:mainWindow,result->error.c_str(),"Synchrorep",MB_OK|MB_ICONERROR);
+  }
  }else if(result->executed){
   auto text=L"Copied: "+std::to_wstring(result->result.copied)+
             L"\nDeleted: "+std::to_wstring(result->result.removed)+
