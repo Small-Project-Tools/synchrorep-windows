@@ -459,5 +459,5 @@ int main(){
   assert(!fs::exists(resumeR/"third.txt"));
   fs::remove_all(root);
   std::cout<<"Engine regression suite: OK\n";
- }catch(...){fs::remove_all(root);throw;}
+ }catch(const std::exception& error){std::cerr<<"Engine regression failed: "<<error.what()<<"\n";fs::remove_all(root);return 1;}
 }
