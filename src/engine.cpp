@@ -209,25 +209,29 @@ void validate_journal(const fs::path& file,const Endpoint& left,const Endpoint& 
 }
 // A completed journal contains exactly one DONE for each BEGIN.
 // An unfinished operation must never be silently recovered.
-bool journal_has_unfinished_operations(const fs::path& file){
+std::set<std::string> journal_unfinished_operations(const fs::path& file){
  std::ifstream input(file,std::ios::binary);
  if(!input)throw std::runtime_error("Cannot read recovery journal");
  std::string line;
  std::getline(input,line); // format
- std::getline(input,line); // endpoint identities (validated by caller)
+ std::getline(input,line); // identities validated by caller
  std::map<std::string,int> pending;
  while(std::getline(input,line)){
   std::istringstream record(line);
   std::string action,name;
-  if(!(record>>action>>std::quoted(name)))
+  if(!(record>>action>>std::quoted(name)) || !(record>>std::ws).eof())
    throw std::runtime_error("Damaged recovery journal entry");
   if(action=="BEGIN")++pending[name];
   else if(action=="DONE"){
-   if(--pending[name]<0)throw std::runtime_error("Unmatched recovery completion");
+   auto it=pending.find(name);
+   if(it==pending.end()||it->second==0)throw std::runtime_error("Unmatched recovery completion");
+   --it->second;
   }else throw std::runtime_error("Damaged recovery journal action");
  }
  if(input.bad())throw std::runtime_error("Cannot finish reading recovery journal");
- return std::any_of(pending.begin(),pending.end(),[](const auto& entry){return entry.second!=0;});
+ std::set<std::string> result;
+ for(const auto& [name,count]:pending)if(count)result.insert(name);
+ return result;
 }
 void begin_journal(const fs::path& file,const Endpoint& left,const Endpoint& right,
                    const std::vector<Decision>& decisions){
@@ -498,7 +502,19 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallback
    return d.action==Action::None||d.action==Action::CopyLeftToRight||
           d.action==Action::CopyRightToLeft;
   });
-  if(!safePlan||journal_has_unfinished_operations(journal))
+  const auto unfinished=journal_unfinished_operations(journal);
+  const bool safeUnfinished=std::all_of(unfinished.begin(),unfinished.end(),[&](const std::string& name){
+   const auto decision=std::find_if(decisions.begin(),decisions.end(),[&](const Decision& d){
+    return d.relative==name;
+   });
+   if(decision==decisions.end())return false;
+   if(decision->action==Action::CopyLeftToRight)
+    return leftScan.count(name)&&leftScan.at(name).exists&&!rightScan.count(name);
+   if(decision->action==Action::CopyRightToLeft)
+    return rightScan.count(name)&&rightScan.at(name).exists&&!leftScan.count(name);
+   return false;
+  });
+  if(!safePlan||!safeUnfinished)
    throw std::runtime_error("Previous run interrupted; review the preview and explicitly enable recovery");
  }
  Result result;
