@@ -39,8 +39,10 @@ try {
   }
   # The MSI must install every runtime dependency beside the actual executable.
   $manifest = Join-Path (Split-Path -Parent $resolved) 'windows-dlls.txt'
-  if (Test-Path -LiteralPath $manifest) {
-    foreach ($dll in Get-Content -LiteralPath $manifest) {
+  if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) {
+    throw "MSI runtime manifest missing from distribution: $manifest"
+  }
+  foreach ($dll in Get-Content -LiteralPath $manifest) {
       $sourceDll = Join-Path (Split-Path -Parent $resolved) $dll
       $installedDll = Join-Path $installDir $dll
       if (-not (Test-Path -LiteralPath $installedDll -PathType Leaf)) { throw "MSI did not install runtime DLL: $dll" }
@@ -48,7 +50,6 @@ try {
         throw "Installed runtime DLL differs from distribution: $dll"
       }
     }
-  }
   & (Join-Path $PSScriptRoot 'check_windows_runtime.ps1') -ExecutablePath $exe
   foreach ($reg in @(
     'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Classes\Directory\shell\Synchrorep',
