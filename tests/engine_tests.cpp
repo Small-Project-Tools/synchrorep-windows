@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "synchrorep/engine.hpp"
 #include "synchrorep/recycle_bin.hpp"
-#include <cassert>
+#include <stdexcept>
+#define assert(condition) do { if(!(condition)) throw std::runtime_error("Assertion failed: " #condition " at line " + std::to_string(__LINE__)); } while(false)
 #include <algorithm>
 #include <map>
 #include <vector>
