@@ -572,7 +572,26 @@ void startSync(bool execute,bool trustedStartup=false){
       if(!local)throw std::runtime_error("Mirror source is not a local endpoint");
       MirrorMonitor monitor;
       result.result=monitor.run(*a,*b,engine,local->root(),callbacks);
-     }else result.result=engine.run(*a,*b,false,callbacks);
+     }else{
+      // Bidirectional synchronization is continuous after its first run.
+      // Keep the same engine and history, so each cycle reconciles both
+      // endpoints and retains the usual conflict/deletion protections.
+      result.result=engine.run(*a,*b,false,callbacks);
+      while(!callbacks.cancelled || !callbacks.cancelled()){
+       for(int tick=0;tick<40;++tick){
+        if(callbacks.cancelled&&callbacks.cancelled())break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+       }
+       if(callbacks.cancelled&&callbacks.cancelled())break;
+       auto cycle=engine.run(*a,*b,false,callbacks);
+       if(!cycle.conflicts.empty())
+        throw std::runtime_error("Bidirectional monitoring stopped: resolve conflicts in Preview");
+       result.result.copied+=cycle.copied;
+       result.result.removed+=cycle.removed;
+       result.result.archived+=cycle.archived;
+       result.result.recycled+=cycle.recycled;
+      }
+     }
      result.executed=true;
     }
    }
