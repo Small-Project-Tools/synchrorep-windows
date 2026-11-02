@@ -14,6 +14,7 @@
 #include <cstring>
 #include <commctrl.h>
 #include <atomic>
+#include <chrono>
 #include <thread>
 #include <map>
 #include <optional>
@@ -577,7 +578,7 @@ void startSync(bool execute,bool trustedStartup=false){
       // Keep the same engine and history, so each cycle reconciles both
       // endpoints and retains the usual conflict/deletion protections.
       result.result=engine.run(*a,*b,false,callbacks);
-      while(!callbacks.cancelled || !callbacks.cancelled()){
+      while(!(callbacks.cancelled&&callbacks.cancelled())){
        for(int tick=0;tick<40;++tick){
         if(callbacks.cancelled&&callbacks.cancelled())break;
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
