@@ -4,6 +4,7 @@
 #include "synchrorep/remote_endpoint.hpp"
 #include "synchrorep/recycle_bin.hpp"
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <fstream>
 #include <cstdint>
@@ -234,8 +235,20 @@ void LocalEndpoint::write(const std::string& relative,std::istream& input,const 
   {
    std::ofstream out(tmp,std::ios::binary|std::ios::trunc);
    if(!out)throw std::runtime_error("Cannot create temporary file: "+tmp.string());
-   out<<input.rdbuf();out.flush();
-   if(!out || input.bad())throw std::runtime_error("Incomplete transfer: "+relative);
+   std::array<char,64*1024> buffer{};
+   for(;;){
+    input.read(buffer.data(),static_cast<std::streamsize>(buffer.size()));
+    const auto count=input.gcount();
+    if(count>0){
+     out.write(buffer.data(),count);
+     if(!out)throw std::runtime_error("Cannot write transfer data: "+relative);
+    }
+    if(input.bad() || (input.fail() && !input.eof()))
+     throw std::runtime_error("Cannot read transfer source: "+relative);
+    if(input.eof())break;
+   }
+   out.flush();
+   if(!out)throw std::runtime_error("Cannot flush transfer data: "+relative);
   }
   // Do not promote a short transfer. The endpoint must still have the
   // original file intact if a remote or local input fails.
