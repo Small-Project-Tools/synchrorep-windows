@@ -438,7 +438,7 @@ int main(){
    out<<"SYNCHROREP-RUN1\\n"
       <<std::quoted(LocalEndpoint(resumeL).identity())<<" "
       <<std::quoted(LocalEndpoint(resumeR).identity())<<"\\n"
-      <<"BEGIN \\"first.txt\\"\\nDONE \\"first.txt\\"\\n";
+      <<"BEGIN \"first.txt\"\\nDONE \"first.txt\"\\n";
   }
   assert(completed.run(resumeL,resumeR).copied==1);
   assert(!fs::exists(completedJournal));
@@ -450,7 +450,7 @@ int main(){
    out<<"SYNCHROREP-RUN1\\n"
       <<std::quoted(LocalEndpoint(resumeL).identity())<<" "
       <<std::quoted(LocalEndpoint(resumeR).identity())<<"\\n"
-      <<"BEGIN \\"third.txt\\"\\n";
+      <<"BEGIN \"third.txt\"\\n";
   }
   assert(throws([&]{completed.run(resumeL,resumeR);}));
   assert(fs::exists(completedJournal));
