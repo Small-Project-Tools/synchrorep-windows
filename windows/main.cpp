@@ -685,7 +685,8 @@ void onFinished(std::unique_ptr<synchrorep::winui::FinishedEvent> result){
   set(IdStatus,wasMirror?L"Continuous mirror stopped.":L"Synchronization complete.");
   MessageBoxW(syncWindow?syncWindow:mainWindow,text.c_str(),L"Synchrorep",MB_OK|MB_ICONINFORMATION);
  }else {
-  set(IdStatus,L"Preview complete. Select a conflict to choose its resolution.");
+  const bool hasConflicts=std::any_of(shownDecisions.begin(),shownDecisions.end(),[](const Decision& d){return d.action==Action::Conflict;});
+  set(IdStatus,hasConflicts?L"Preview complete. Resolve conflicts before synchronizing.":L"Preview complete. No conflicts; synchronization can start.");
   showTab(MainTab::Preview);
  }
  if(syncStatus)SetWindowTextW(syncStatus,get(IdStatus).c_str());
