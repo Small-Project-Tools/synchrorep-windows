@@ -982,12 +982,25 @@ void onCommand(int id){
     std::error_code ec;
     std::filesystem::remove(state,ec);
     if(ec)throw std::filesystem::filesystem_error("Cannot clear legacy history",state,ec);
+    // An interrupted run belongs to this profile. Discard its pending
+    // conflict/recovery marker when the last profile using this state is
+    // deleted, so a newly created configuration cannot inherit that block.
+    for(const auto& suffix:{L".journal",L".journal.tmp"}){
+     auto marker=state;
+     marker+=suffix;
+     ec.clear();
+     std::filesystem::remove(marker,ec);
+     if(ec)throw std::filesystem::filesystem_error("Cannot clear deleted profile journal",marker,ec);
+    }
    }
    wchar_t module[32768]{};
    if(!GetModuleFileNameW(nullptr,module,32768))
     throw std::runtime_error("Cannot locate application for automatic startup");
    synchrorep::winui::synchronize_startup(profiles,module);
-   selectedProfile=-1;overrides.clear();shownDecisions.clear();set(IdName,L"");set(IdLeft,L"");set(IdRight,L"");
+   selectedProfile=-1;overrides.clear();shownDecisions.clear();
+   SendMessageW(controls[IdChanges],LB_RESETCONTENT,0,0);
+   if(syncChanges)SendMessageW(syncChanges,LB_RESETCONTENT,0,0);
+   refreshSummary();set(IdName,L"");set(IdLeft,L"");set(IdRight,L"");
    updateList();
   }break;
  case IdRemember:{
