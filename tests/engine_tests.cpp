@@ -436,7 +436,7 @@ int main(){
   auto completedJournal=resumeState;
   completedJournal+=".journal";
   {
-   std::ofstream out(completedJournal);
+   std::ofstream out(completedJournal,std::ios::binary);
    out<<"SYNCHROREP-RUN1\n"
       <<std::quoted(LocalEndpoint(resumeL).identity())<<" "
       <<std::quoted(LocalEndpoint(resumeR).identity())<<"\n"
@@ -448,7 +448,7 @@ int main(){
   // An incomplete journal must still block automatic recovery.
   write(resumeL/"third.txt","three");
   {
-   std::ofstream out(completedJournal);
+   std::ofstream out(completedJournal,std::ios::binary);
    out<<"SYNCHROREP-RUN1\n"
       <<std::quoted(LocalEndpoint(resumeL).identity())<<" "
       <<std::quoted(LocalEndpoint(resumeR).identity())<<"\n"
