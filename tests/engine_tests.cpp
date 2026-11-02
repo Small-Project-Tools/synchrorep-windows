@@ -454,9 +454,24 @@ int main(){
       <<std::quoted(LocalEndpoint(resumeR).identity())<<"\n"
       <<"BEGIN \"third.txt\"\n";
   }
+  // Unfinished copies into absent targets are safe to retry idempotently.
+  assert(completed.run(resumeL,resumeR).copied==1);
+  assert(!fs::exists(completedJournal));
+  assert(read(resumeR/"third.txt")=="three");
+  // If a prior transfer may have overwritten an existing target, keep
+  // requiring explicit approval even if the new plan appears harmless.
+  write(resumeL/"fourth.txt","four");
+  write(resumeR/"fourth.txt","different");
+  {
+   std::ofstream out(completedJournal,std::ios::binary);
+   out<<"SYNCHROREP-RUN1\n"
+      <<std::quoted(LocalEndpoint(resumeL).identity())<<" "
+      <<std::quoted(LocalEndpoint(resumeR).identity())<<"\n"
+      <<"BEGIN \"fourth.txt\"\n";
+  }
   assert(throws([&]{completed.run(resumeL,resumeR);}));
   assert(fs::exists(completedJournal));
-  assert(!fs::exists(resumeR/"third.txt"));
+  assert(read(resumeR/"fourth.txt")=="different");
   fs::remove_all(root);
   std::cout<<"Engine regression suite: OK\n";
  }catch(const std::exception& error){std::cerr<<"Engine regression failed: "<<error.what()<<"\n";fs::remove_all(root);return 1;}
