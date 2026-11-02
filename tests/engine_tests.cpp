@@ -66,24 +66,6 @@ int main(){
  auto a=root/"a",b=root/"b",c=root/"c";fs::create_directories(a);fs::create_directories(b);fs::create_directories(c);
  try {
   EngineWithoutNativeRecycle e(root/"state"/"history.txt",Options{ConflictPolicy::Ask,true,{},false,true,false});
-  // Empty files must copy successfully; streambuf insertion sets failbit for zero bytes.
-  write(a/"empty.odg","");
-  assert(e.run(a,b).copied==1);
-  assert(fs::exists(b/"empty.odg")&&fs::file_size(b/"empty.odg")==0);
-  // Exercise transfers crossing the streaming buffer boundary.
-  write(a/"large.odg",std::string(150000,'x'));
-  assert(e.run(a,b).copied==1);
-  assert(read(b/"large.odg")==std::string(150000,'x'));
-  // A truncated source must not replace the existing target.
-  {
-   LocalEndpoint destination(b);
-   std::istringstream truncated("short");
-   Entry expected{};
-   expected.size=20;
-   write(b/"preserved.odg","original");
-   assert(throws([&]{destination.write("preserved.odg",truncated,expected);}));
-   assert(read(b/"preserved.odg")=="original");
-  }
   write(a/"file.txt","a");assert(e.run(a,b).copied==1);
   assert(read(b/"file.txt")=="a");assert(e.run(a,b).copied==0);
   write(b/"only-right.txt","right");assert(e.run(a,b).copied==1);
@@ -418,6 +400,29 @@ int main(){
   assert(throws([&]{dry.run(u,v);}));
   fs::remove(v/"link.txt");
 #endif
+  // Transfer regressions use isolated roots to avoid affecting historical scenarios.
+  auto transferA=root/"transfer-left",transferB=root/"transfer-right";
+  fs::create_directories(transferA);
+  fs::create_directories(transferB);
+  EngineWithoutNativeRecycle transferEngine(root/"state"/"transfer.state");
+  // Empty files must copy successfully; streambuf insertion sets failbit for zero bytes.
+  write(transferA/"empty.odg","");
+  assert(transferEngine.run(transferA,transferB).copied==1);
+  assert(fs::exists(transferB/"empty.odg")&&fs::file_size(transferB/"empty.odg")==0);
+  // Exercise transfers crossing the streaming buffer boundary.
+  write(transferA/"large.odg",std::string(150000,'x'));
+  assert(transferEngine.run(transferA,transferB).copied==1);
+  assert(read(transferB/"large.odg")==std::string(150000,'x'));
+  // A truncated source must not replace the existing target.
+  {
+   LocalEndpoint destination(transferB);
+   std::istringstream truncated("short");
+   Entry expected{};
+   expected.size=20;
+   write(transferB/"preserved.odg","original");
+   assert(throws([&]{destination.write("preserved.odg",truncated,expected);}));
+   assert(read(transferB/"preserved.odg")=="original");
+  }
   fs::remove_all(root);
   std::cout<<"Engine regression suite: OK\n";
  }catch(...){fs::remove_all(root);throw;}
