@@ -187,30 +187,35 @@ fs::path LocalEndpoint::within(const std::string& relative) const {
  return root_/fs::path(std::u8string(reinterpret_cast<const char8_t*>(relative.data()),relative.size()));
 }
 Snapshot LocalEndpoint::scan()const{
- Snapshot found;
  static const std::regex unfinished(R"(\.synchrorep-(?:write-[0-9]+\.tmp|upload-[0-9]+)$)");
- for(auto i=fs::recursive_directory_iterator(root_);i!=fs::recursive_directory_iterator();++i) {
-  // An unclean shutdown can leave a temporary file. It must never be
-  // propagated to the opposite endpoint as user data.
-  const auto name=i->path().filename().string();
-  if(std::regex_search(name,unfinished))
-   throw std::runtime_error("Interrupted transfer artifact detected; inspect and remove manually: "+i->path().string());
-  auto key=i->path().lexically_relative(root_).generic_u8string();
-  // Files can disappear between directory enumeration and metadata access.
-  // Do not insert a phantom entry: only persist entries that still exist.
-  std::error_code statusError;
-  const auto status=fs::symlink_status(i->path(),statusError);
-  if(statusError==std::errc::no_such_file_or_directory ||
-     (!statusError && status.type()==fs::file_type::not_found))continue;
-  if(statusError)throw fs::filesystem_error("Cannot inspect filesystem entry",i->path(),statusError);
+ // A disappearing entry means the snapshot is inconsistent. Retry the entire
+ // scan rather than mistaking the missing entry for a deletion to propagate.
+ for(int attempt=0;attempt<3;++attempt){
+  Snapshot found;
+  bool changed=false;
   try {
-   found.emplace(std::string(key.begin(),key.end()),stat(i->path()));
-  } catch(const fs::filesystem_error& error) {
-   if(error.code()==std::errc::no_such_file_or_directory)continue;
-   throw;
+   for(auto i=fs::recursive_directory_iterator(root_);
+       i!=fs::recursive_directory_iterator();++i){
+    const auto path=i->path();
+    const auto name=path.filename().string();
+    if(std::regex_search(name,unfinished))
+     throw std::runtime_error("Interrupted transfer artifact detected; inspect and remove manually: "+path.string());
+    const auto key=path.lexically_relative(root_).generic_u8string();
+    try {
+     found.emplace(std::string(key.begin(),key.end()),stat(path));
+    }catch(const fs::filesystem_error& error){
+     if(error.code()!=std::errc::no_such_file_or_directory)throw;
+     changed=true;
+     break;
+    }
+   }
+  }catch(const fs::filesystem_error& error){
+   if(error.code()!=std::errc::no_such_file_or_directory)throw;
+   changed=true;
   }
+  if(!changed)return found;
  }
- return found;
+ throw std::runtime_error("Filesystem changed repeatedly during scan; retry synchronization");
 }
 std::unique_ptr<std::istream> LocalEndpoint::read(const std::string& relative)const {
  auto file=within(relative);
