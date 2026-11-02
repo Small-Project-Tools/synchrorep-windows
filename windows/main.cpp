@@ -659,8 +659,11 @@ void onFinished(std::unique_ptr<synchrorep::winui::FinishedEvent> result){
    set(IdStatus,L"Interrupted run detected; review Preview and enable recovery explicitly.");
    // Preserve the journal and require the existing explicit recovery opt-in.
    // Expose its location in the UI instead of presenting an unhelpful error.
+   if(syncWindow)DestroyWindow(syncWindow);
+   if(!IsWindowVisible(mainWindow))ShowWindow(mainWindow,SW_SHOW);
    settingsPane=SettingsPane::Behavior;
    showTab(MainTab::Settings);
+   SetForegroundWindow(mainWindow);
    MessageBoxW(mainWindow,
     L"A previous synchronization was interrupted. Its recovery journal is preserved.\n\n"
     L"1. Run Preview to review transfers and deletions.\n"
