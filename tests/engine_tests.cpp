@@ -423,6 +423,38 @@ int main(){
    assert(throws([&]{destination.write("preserved.odg",truncated,expected);}));
    assert(read(transferB/"preserved.odg")=="original");
   }
+  // A completed recovery journal must not block a harmless new copy.
+  auto resumeL=root/"completed-left",resumeR=root/"completed-right";
+  fs::create_directories(resumeL);fs::create_directories(resumeR);
+  auto resumeState=root/"state"/"completed.state";
+  EngineWithoutNativeRecycle completed(resumeState);
+  write(resumeL/"first.txt","one");
+  assert(completed.run(resumeL,resumeR).copied==1);
+  write(resumeL/"second.txt","two");
+  auto completedJournal=resumeState;
+  completedJournal+=".journal";
+  {
+   std::ofstream out(completedJournal);
+   out<<"SYNCHROREP-RUN1\\n"
+      <<std::quoted(LocalEndpoint(resumeL).identity())<<" "
+      <<std::quoted(LocalEndpoint(resumeR).identity())<<"\\n"
+      <<"BEGIN \\"first.txt\\"\\nDONE \\"first.txt\\"\\n";
+  }
+  assert(completed.run(resumeL,resumeR).copied==1);
+  assert(!fs::exists(completedJournal));
+  assert(read(resumeR/"second.txt")=="two");
+  // An incomplete journal must still block automatic recovery.
+  write(resumeL/"third.txt","three");
+  {
+   std::ofstream out(completedJournal);
+   out<<"SYNCHROREP-RUN1\\n"
+      <<std::quoted(LocalEndpoint(resumeL).identity())<<" "
+      <<std::quoted(LocalEndpoint(resumeR).identity())<<"\\n"
+      <<"BEGIN \\"third.txt\\"\\n";
+  }
+  assert(throws([&]{completed.run(resumeL,resumeR);}));
+  assert(fs::exists(completedJournal));
+  assert(!fs::exists(resumeR/"third.txt"));
   fs::remove_all(root);
   std::cout<<"Engine regression suite: OK\n";
  }catch(...){fs::remove_all(root);throw;}
