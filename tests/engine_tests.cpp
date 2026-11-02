@@ -333,7 +333,7 @@ int main(){
   assert(throws([&]{EngineWithoutNativeRecycle(pairState,Options{ConflictPolicy::Ask,true,{},true}).run(a,b);}));
   assert(wrongPair.has_pending_recovery());
   EngineWithoutNativeRecycle correctPair(pairState,Options{ConflictPolicy::Ask,true,{},true});
-  assert(correctPair.run(scanL,scanR).conflicts.empty());
+  try { assert(correctPair.run(scanL,scanR).conflicts.empty()); } catch(const std::exception& e) { throw std::runtime_error("resume correct ordered pair: "+std::string(e.what())); }
   assert(!correctPair.has_pending_recovery());
   // The journal must fail closed if the metadata is tampered with.
   auto corruptState=root/"state"/"corrupt-journal.state";
@@ -431,7 +431,7 @@ int main(){
   auto resumeState=root/"state"/"completed.state";
   EngineWithoutNativeRecycle completed(resumeState);
   write(resumeL/"first.txt","one");
-  assert(completed.run(resumeL,resumeR).copied==1);
+  try { assert(completed.run(resumeL,resumeR).copied==1); } catch(const std::exception& e) { throw std::runtime_error("completed journal scenario: "+std::string(e.what())); }
   write(resumeL/"second.txt","two");
   auto completedJournal=resumeState;
   completedJournal+=".journal";
