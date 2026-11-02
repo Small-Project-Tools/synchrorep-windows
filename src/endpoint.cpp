@@ -192,7 +192,19 @@ Snapshot LocalEndpoint::scan()const{
   if(std::regex_search(name,unfinished))
    throw std::runtime_error("Interrupted transfer artifact detected; inspect and remove manually: "+i->path().string());
   auto key=i->path().lexically_relative(root_).generic_u8string();
-  found.emplace(std::string(key.begin(),key.end()),stat(i->path()));
+  // Files can disappear between directory enumeration and metadata access.
+  // Do not insert a phantom entry: only persist entries that still exist.
+  std::error_code statusError;
+  const auto status=fs::symlink_status(i->path(),statusError);
+  if(statusError==std::errc::no_such_file_or_directory ||
+     (!statusError && status.type()==fs::file_type::not_found))continue;
+  if(statusError)throw fs::filesystem_error("Cannot inspect filesystem entry",i->path(),statusError);
+  try {
+   found.emplace(std::string(key.begin(),key.end()),stat(i->path()));
+  } catch(const fs::filesystem_error& error) {
+   if(error.code()==std::errc::no_such_file_or_directory)continue;
+   throw;
+  }
  }
  return found;
 }
