@@ -207,6 +207,28 @@ void validate_journal(const fs::path& file,const Endpoint& left,const Endpoint& 
  }
  if(input.bad())throw std::runtime_error("Cannot finish reading recovery journal");
 }
+// A completed journal contains exactly one DONE for each BEGIN.
+// An unfinished operation must never be silently recovered.
+bool journal_has_unfinished_operations(const fs::path& file){
+ std::ifstream input(file,std::ios::binary);
+ if(!input)throw std::runtime_error("Cannot read recovery journal");
+ std::string line;
+ std::getline(input,line); // format
+ std::getline(input,line); // endpoint identities (validated by caller)
+ std::map<std::string,int> pending;
+ while(std::getline(input,line)){
+  std::istringstream record(line);
+  std::string action,name;
+  if(!(record>>action>>std::quoted(name)))
+   throw std::runtime_error("Damaged recovery journal entry");
+  if(action=="BEGIN")++pending[name];
+  else if(action=="DONE"){
+   if(--pending[name]<0)throw std::runtime_error("Unmatched recovery completion");
+  }else throw std::runtime_error("Damaged recovery journal action");
+ }
+ if(input.bad())throw std::runtime_error("Cannot finish reading recovery journal");
+ return std::any_of(pending.begin(),pending.end(),[](const auto& entry){return entry.second!=0;});
+}
 void begin_journal(const fs::path& file,const Endpoint& left,const Endpoint& right,
                    const std::vector<Decision>& decisions){
  auto parent=file.parent_path();
@@ -457,11 +479,8 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallback
  CancellationBinding binding(left,right,callbacks);
  auto state=load(state_,left,right);
  auto journal=journal_path(state_);
- if(!dry_run&&has_pending_recovery()){
-  validate_journal(journal,left,right);
-  if(!options_.resume_interrupted)
-   throw std::runtime_error("Previous run interrupted; review the preview and explicitly enable recovery");
- }
+ const bool pendingRecovery=!dry_run&&has_pending_recovery();
+ if(pendingRecovery)validate_journal(journal,left,right);
  auto leftScan=scan_entries(left,callbacks,Phase::ScanLeft);
  auto rightScan=scan_entries(right,callbacks,Phase::ScanRight);
  hash_common(leftScan,rightScan,left,right,callbacks,state.history.empty()||options_.verify_hash);
@@ -471,6 +490,17 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallback
  auto decisions=options_.mode==SyncMode::Mirror
    ?mirror_decisions(leftScan,rightScan,state.history,options_)
    :build(leftScan,rightScan,state.history,options_);
+ // A fully completed journal with a non-destructive plan is only stale
+ // metadata. Allow a regular reconciliation; unfinished operations and
+ // deletions still require explicit recovery consent.
+ if(pendingRecovery&&!options_.resume_interrupted){
+  const bool safePlan=std::all_of(decisions.begin(),decisions.end(),[](const Decision& d){
+   return d.action==Action::None||d.action==Action::CopyLeftToRight||
+          d.action==Action::CopyRightToLeft;
+  });
+  if(!safePlan||journal_has_unfinished_operations(journal))
+   throw std::runtime_error("Previous run interrupted; review the preview and explicitly enable recovery");
+ }
  Result result;
  for(const auto& decision:decisions)
   if(decision.action==Action::Conflict)result.conflicts.push_back(decision.relative);
