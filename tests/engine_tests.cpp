@@ -8,6 +8,7 @@
 #include <vector>
 #include <chrono>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <stdexcept>
 #include <sstream>
@@ -435,10 +436,10 @@ int main(){
   completedJournal+=".journal";
   {
    std::ofstream out(completedJournal);
-   out<<"SYNCHROREP-RUN1\\n"
+   out<<"SYNCHROREP-RUN1\n"
       <<std::quoted(LocalEndpoint(resumeL).identity())<<" "
-      <<std::quoted(LocalEndpoint(resumeR).identity())<<"\\n"
-      <<"BEGIN \"first.txt\"\\nDONE \"first.txt\"\\n";
+      <<std::quoted(LocalEndpoint(resumeR).identity())<<"\n"
+      <<"BEGIN \"first.txt\"\nDONE \"first.txt\"\n";
   }
   assert(completed.run(resumeL,resumeR).copied==1);
   assert(!fs::exists(completedJournal));
@@ -447,10 +448,10 @@ int main(){
   write(resumeL/"third.txt","three");
   {
    std::ofstream out(completedJournal);
-   out<<"SYNCHROREP-RUN1\\n"
+   out<<"SYNCHROREP-RUN1\n"
       <<std::quoted(LocalEndpoint(resumeL).identity())<<" "
-      <<std::quoted(LocalEndpoint(resumeR).identity())<<"\\n"
-      <<"BEGIN \"third.txt\"\\n";
+      <<std::quoted(LocalEndpoint(resumeR).identity())<<"\n"
+      <<"BEGIN \"third.txt\"\n";
   }
   assert(throws([&]{completed.run(resumeL,resumeR);}));
   assert(fs::exists(completedJournal));
