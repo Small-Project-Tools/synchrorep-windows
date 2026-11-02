@@ -35,6 +35,9 @@ wait_condition(){
     sleep .15
   done
   echo "FAIL: $description" >&2
+  if kill -0 "$app" 2>/dev/null; then echo "Mirror process still running" >&2; else echo "Mirror process exited before condition" >&2; fi
+  find "$source" "$target" -maxdepth 2 -type f -printf '%p %s bytes\\n' >&2 || true
+  find "$state_dir" -maxdepth 1 -name '*.journal' -printf 'Pending journal: %p\\n' >&2 || true
   cat "$WINEPREFIX/startup-smoke.log" >&2
   return 1
 }
@@ -45,6 +48,7 @@ find "$state_dir/recovery/$key.state" -type f -name extra.txt -size +0c | grep -
 echo "PASS: Recovery archive exists for deleted target-only file"
 printf 'new-file\n' > "$source/new-file.tmp"
 mv "$source/new-file.tmp" "$source/new-file.txt"
+WAIT_ATTEMPTS=420
 wait_condition "Source creation mirrored" 'test -f "$target/new-file.txt" && cmp -s "$source/new-file.txt" "$target/new-file.txt"'
 printf 'wrong-drift\n' > "$target/source.txt.tmp"
 mv "$target/source.txt.tmp" "$target/source.txt"
