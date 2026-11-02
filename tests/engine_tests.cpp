@@ -297,14 +297,14 @@ int main(){
   assert(read(cancelLog).find("\"event\":\"cancelled\"")!=std::string::npos);
   assert(reported.size()>2);
   assert(fs::exists(cancelB/"a.txt")&&!fs::exists(cancelB/"b.txt"));
-  assert(throws([&]{cancellable.run(cancelA,cancelB);}));
   auto preview=cancellable.plan(cancelA,cancelB);
   assert(!preview.empty());
-  EngineWithoutNativeRecycle recovery(cancelState,Options{ConflictPolicy::Ask,true,{},true});
-  assert(recovery.run(cancelA,cancelB).conflicts.empty());
-  assert(!recovery.has_pending_recovery());
+  // b.txt has no destination: resume the incomplete copy without approval.
+  assert(cancellable.run(cancelA,cancelB).copied==1);
+  assert(!cancellable.has_pending_recovery());
+  assert(read(cancelB/"a.txt")=="one");
   assert(read(cancelB/"b.txt")=="two");
-  assert(recovery.run(cancelA,cancelB).copied==0);
+  assert(cancellable.run(cancelA,cancelB).copied==0);
 
   // Cancellation during a scan never copies anything and never updates state.
   auto scanL=root/"scan-cancel-l",scanR=root/"scan-cancel-r";
