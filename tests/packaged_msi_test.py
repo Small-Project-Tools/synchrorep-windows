@@ -7,6 +7,9 @@ import hashlib
 from pathlib import Path
 import subprocess
 import tempfile
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
+from stage_windows_runtime import imports, SYSTEM_DLLS
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -29,6 +32,7 @@ def validate(build, version):
         root = Path(directory)
         subprocess.run(["msiextract", "-C", str(root), str(msi.resolve())], check=True,
                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        installed = {}
         for name in required:
             matches = [p for p in root.rglob("*") if p.is_file() and p.name.lower() == name.lower()]
             if len(matches) != 1:
@@ -38,7 +42,28 @@ def validate(build, version):
                 raise RuntimeError(f"Missing build dependency: {source}")
             if digest(matches[0]) != digest(source):
                 raise RuntimeError(f"MSI payload hash mismatch for {name}")
-        print(f"Verified extracted MSI: executable, Explorer extension, {len(dlls)} DLLs; SHA-256 identical")
+            installed[name.lower()] = matches[0]
+        # Validate the complete transitive PE import graph of the EXTRACTED
+        # installer, not the build directory or only a manifest of DLL names.
+        pending = ["synchrorep.exe", "SynchrorepExplorer.dll"]
+        checked = set()
+        while pending:
+            name = pending.pop().lower()
+            if name in checked:
+                continue
+            checked.add(name)
+            binary = installed[name]
+            for dependency in imports(binary):
+                if dependency in SYSTEM_DLLS:
+                    continue
+                if dependency not in installed:
+                    raise RuntimeError(f"Unresolved MSI runtime import: {name} -> {dependency}")
+                pending.append(dependency)
+        exe_parent = installed["synchrorep.exe"].parent
+        misplaced = [name for name, path in installed.items() if path.parent != exe_parent]
+        if misplaced:
+            raise RuntimeError(f"Runtime files outside executable folder: {misplaced}")
+        print(f"Verified extracted MSI: executable, Explorer extension, {len(dlls)} DLLs; SHA-256 identical; PE dependency closure complete")
 
 def main():
     parser = argparse.ArgumentParser()
