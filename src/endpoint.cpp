@@ -85,7 +85,11 @@ void restore_timestamp(const fs::path& p,std::int64_t modified) {
 Entry stat(const fs::path& path) {
  std::error_code ec;
  auto s=fs::symlink_status(path,ec);
- if(ec || s.type()==fs::file_type::not_found)throw std::runtime_error("Filesystem entry disappeared: "+path.string());
+ if(ec==std::errc::no_such_file_or_directory ||
+    (!ec && s.type()==fs::file_type::not_found))
+  throw fs::filesystem_error("Filesystem entry disappeared",path,
+   std::make_error_code(std::errc::no_such_file_or_directory));
+ if(ec)throw fs::filesystem_error("Cannot inspect filesystem entry",path,ec);
  if(fs::is_symlink(s))throw std::runtime_error("Symbolic links are not supported: "+path.string());
  if(!fs::is_directory(s) && !fs::is_regular_file(s))throw std::runtime_error("Unsupported filesystem object: "+path.string());
  Entry e; e.exists=true;e.directory=fs::is_directory(s);
