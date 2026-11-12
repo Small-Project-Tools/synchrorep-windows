@@ -501,6 +501,32 @@ int main(){
   assert(!fs::exists(excludedRight/"ignored.tmp"));
   assert(!fs::exists(excludedRight/"cache"));
   assert(!fs::exists(excludedRight/"sub"/"debug.log"));
+  // SIGKILL during a copy leaves both an incomplete journal and a partial
+  // .synchrorep-write-N.tmp. Recovery must remove only the partial artifact.
+  auto crashLeft=root/"crash-left",crashRight=root/"crash-right";
+  fs::create_directories(crashLeft);fs::create_directories(crashRight);
+  write(crashLeft/"large.bin","complete-content");
+  write(crashRight/"large.bin.synchrorep-write-123456.tmp","partial-content");
+  write(crashRight/"unrelated.tmp","not-ours");
+  auto crashState=root/"crash-state"/"history";
+  fs::create_directories(crashState.parent_path());
+  {
+   std::ofstream out(crashState.string()+".journal");
+   out<<"SYNCHROREP-RUN1\n"
+      <<std::quoted(LocalEndpoint(crashLeft).identity())<<" "
+      <<std::quoted(LocalEndpoint(crashRight).identity())<<"\n"
+      <<"BEGIN \"large.bin\"\n";
+  }
+  Options crashOptions;
+  crashOptions.mode=SyncMode::Mirror;
+  crashOptions.recycle_local_deletions=false;
+  crashOptions.resume_interrupted=true;
+  crashOptions.exclude_patterns={"*.tmp"};
+  Engine crashRecovery(crashState,crashOptions);
+  assert(crashRecovery.run(crashLeft,crashRight).copied==1);
+  assert(read(crashRight/"large.bin")=="complete-content");
+  assert(!fs::exists(crashRight/"large.bin.synchrorep-write-123456.tmp"));
+  assert(read(crashRight/"unrelated.tmp")=="not-ours");
   fs::remove_all(root);
   std::cout<<"Engine regression suite: OK\n";
  }catch(const std::exception& error){std::cerr<<"Engine regression failed: "<<error.what()<<"\n";fs::remove_all(root);return 1;}
