@@ -205,7 +205,8 @@ int main() {
   safeMessage(GetDlgItem(app,IdExclusions),WM_SETTEXT,0,
               reinterpret_cast<LPARAM>(patterns.c_str()),"exclusion rules input");
   wchar_t captured[128]{};
-  GetWindowTextW(GetDlgItem(app,IdExclusions),captured,128);
+  safeMessage(GetDlgItem(app,IdExclusions),WM_GETTEXT,128,
+              reinterpret_cast<LPARAM>(captured),"read exclusion rules input");
   std::wstring normalized=captured;
   normalized.erase(std::remove(normalized.begin(),normalized.end(),L'\r'),normalized.end());
   if(normalized!=L"*.tmp\ncache/**") {
