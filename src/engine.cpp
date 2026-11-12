@@ -553,6 +553,13 @@ bool Engine::has_pending_recovery()const{
  if(error)throw std::runtime_error("Cannot inspect recovery journal");
  return exists;
 }
+void Engine::prepare_recovery(const Endpoint& left,const Endpoint& right)const{
+ if(!options_.resume_interrupted||!has_pending_recovery())return;
+ ensure_distinct(left,right,state_);
+ const auto journal=journal_path(state_);
+ validate_journal(journal,left,right);
+ clear_interrupted_writes(journal,left,right);
+}
 std::vector<Decision> Engine::plan(const Endpoint& left,const Endpoint& right,const RunCallbacks& callbacks)const{
  ensure_distinct(left,right,state_);
  CancellationBinding binding(left,right,callbacks);
@@ -582,7 +589,7 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallback
  const bool pendingRecovery=!dry_run&&has_pending_recovery();
  if(pendingRecovery){
   validate_journal(journal,left,right);
-  if(options_.resume_interrupted)clear_interrupted_writes(journal,left,right);
+  if(options_.resume_interrupted)prepare_recovery(left,right);
  }
  auto leftScan=scan_entries(left,callbacks,Phase::ScanLeft);
  auto rightScan=scan_entries(right,callbacks,Phase::ScanRight);
