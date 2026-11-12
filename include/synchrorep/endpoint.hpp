@@ -7,6 +7,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <vector>
 #include <functional>
 #include <stdexcept>
 
@@ -48,6 +49,8 @@ public:
  explicit LocalEndpoint(fs::path root);
  std::string identity() const override;
  Snapshot scan() const override;
+ // Prune excluded local trees before following entries or inspecting metadata.
+ Snapshot scan_filtered(const std::vector<std::string>& exclusions) const;
  std::unique_ptr<std::istream> read(const std::string& relative) const override;
  void write(const std::string& relative, std::istream& input, const Entry& source) override;
  void make_directory(const std::string& relative) override;
