@@ -523,6 +523,11 @@ int main(){
   crashOptions.resume_interrupted=true;
   crashOptions.exclude_patterns={"*.tmp"};
   Engine crashRecovery(crashState,crashOptions);
+  assert(throws([&]{(void)crashRecovery.plan(crashLeft,crashRight);}));
+  LocalEndpoint crashSource(crashLeft),crashTarget(crashRight);
+  crashRecovery.prepare_recovery(crashSource,crashTarget);
+  assert(!fs::exists(crashRight/"large.bin.synchrorep-write-123456.tmp"));
+  assert(!crashRecovery.plan(crashLeft,crashRight).empty());
   assert(crashRecovery.run(crashLeft,crashRight).copied==1);
   assert(read(crashRight/"large.bin")=="complete-content");
   assert(!fs::exists(crashRight/"large.bin.synchrorep-write-123456.tmp"));
