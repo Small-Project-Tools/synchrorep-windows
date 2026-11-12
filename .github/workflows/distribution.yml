@@ -147,7 +147,7 @@ jobs:
 
   windows-msi-install:
     needs: windows-mingw
-    if: ${{ github.event_name != 'pull_request' }}
+    # Validate installer changes on pull requests before approving a merge.
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
