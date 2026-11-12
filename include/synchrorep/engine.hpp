@@ -28,12 +28,13 @@ struct Options {
  ConflictPolicy conflict = ConflictPolicy::Ask;
  bool propagate_deletions = true;
  std::map<std::string,ConflictChoice> overrides;
- bool resume_interrupted = false;
+ bool resume_interrupted = true;
+ std::vector<std::string> exclude_patterns;
  bool preserve_changes = true;
  bool recycle_local_deletions = true;
  SyncMode mode = SyncMode::Bidirectional;
  bool verify_hash = false;
- Options(ConflictPolicy policy=ConflictPolicy::Ask,bool deletions=true,std::map<std::string,ConflictChoice> per_file={},bool resume=false,
+ Options(ConflictPolicy policy=ConflictPolicy::Ask,bool deletions=true,std::map<std::string,ConflictChoice> per_file={},bool resume=true,
          bool preserve=true,bool recycle=true,SyncMode sync_mode=SyncMode::Bidirectional,bool hash=false)
  : conflict(policy),propagate_deletions(deletions),overrides(std::move(per_file)),
    resume_interrupted(resume),preserve_changes(preserve),

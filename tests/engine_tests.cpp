@@ -469,9 +469,38 @@ int main(){
       <<std::quoted(LocalEndpoint(resumeR).identity())<<"\n"
       <<"BEGIN \"fourth.txt\"\n";
   }
-  assert(throws([&]{completed.run(resumeL,resumeR);}));
+  // A disabled opt-in still preserves the prior explicit recovery gate.
+  Options strictRecovery;
+  strictRecovery.resume_interrupted=false;
+  Engine strict(resumeState,strictRecovery);
+  assert(throws([&]{strict.run(resumeL,resumeR);}));
   assert(fs::exists(completedJournal));
   assert(read(resumeR/"fourth.txt")=="different");
+  // Exclusions must not copy, delete, or enter the preview.
+  auto excludedLeft=root/"excluded-left",excludedRight=root/"excluded-right";
+  fs::create_directories(excludedLeft);fs::create_directories(excludedRight);
+  write(excludedLeft/"keep.txt","keep");
+  write(excludedLeft/"ignored.tmp","private");
+  write(excludedLeft/"cache"/"entry.txt","cache");
+  write(excludedLeft/"sub"/"debug.log","log");
+  write(excludedRight/"target-only.tmp","preserve");
+  Options excludedOptions;
+  excludedOptions.mode=SyncMode::Mirror;
+  excludedOptions.exclude_patterns={"*.tmp","cache/**","**/*.log"};
+  excludedOptions.recycle_local_deletions=false;
+  Engine excludedEngine(root/"excluded-state"/"history",excludedOptions);
+  auto excludedPreview=excludedEngine.plan(excludedLeft,excludedRight);
+  assert(!excludedPreview.empty());
+  for(const auto& decision:excludedPreview)
+   if(decision.relative!="keep.txt"&&decision.relative!="sub")
+    throw std::runtime_error("Unexpected excluded decision: "+decision.relative);
+  auto excludedResult=excludedEngine.run(excludedLeft,excludedRight);
+  if(excludedResult.copied<1)throw std::runtime_error("Unexpected number copied: "+std::to_string(excludedResult.copied));
+  assert(fs::exists(excludedRight/"keep.txt"));
+  assert(fs::exists(excludedRight/"target-only.tmp"));
+  assert(!fs::exists(excludedRight/"ignored.tmp"));
+  assert(!fs::exists(excludedRight/"cache"));
+  assert(!fs::exists(excludedRight/"sub"/"debug.log"));
   fs::remove_all(root);
   std::cout<<"Engine regression suite: OK\n";
  }catch(const std::exception& error){std::cerr<<"Engine regression failed: "<<error.what()<<"\n";fs::remove_all(root);return 1;}

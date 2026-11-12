@@ -103,7 +103,12 @@ void atomic_replace(const fs::path& tmp,const fs::path& dst) {
  if(!ec)return;
 #ifdef _WIN32
  // Windows rename() does not replace an existing destination.
- if(fs::exists(dst) && ReplaceFileW(dst.c_str(),tmp.c_str(),nullptr,0,nullptr,nullptr))return;
+ if(fs::exists(dst)){
+  if(ReplaceFileW(dst.c_str(),tmp.c_str(),nullptr,0,nullptr,nullptr))return;
+  if(MoveFileExW(tmp.c_str(),dst.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH))return;
+  throw fs::filesystem_error("Unable to replace existing destination",tmp,dst,
+   std::error_code(GetLastError(),std::system_category()));
+ }
 #endif
  throw fs::filesystem_error("Unable to atomically replace destination",tmp,dst,ec);
 }

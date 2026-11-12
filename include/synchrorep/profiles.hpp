@@ -18,6 +18,8 @@ struct Profile {
  SyncMode mode=SyncMode::Bidirectional;
  bool auto_start=false;
  bool verify_hash=false;
+ bool resume_interrupted=true;
+ std::vector<std::string> exclude_patterns;
 };
 class ProfileStore {
 public:

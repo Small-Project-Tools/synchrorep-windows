@@ -6,6 +6,7 @@
 #include <iomanip>
 #include <stdexcept>
 #include <set>
+#include <sstream>
 namespace synchrorep {
 std::vector<Profile> ProfileStore::load() const {
  if(!fs::exists(file_))return {};
@@ -18,11 +19,13 @@ std::vector<Profile> ProfileStore::load() const {
  const bool third=header=="SYNCHROREP-PROFILES3";
  const bool fourth=header=="SYNCHROREP-PROFILES4";
  const bool fifth=header=="SYNCHROREP-PROFILES5";
- if(!previous&&!second&&!third&&!fourth&&!fifth&&header!="SYNCHROREP-PROFILES6")
+ const bool sixth=header=="SYNCHROREP-PROFILES6";
+ const bool seventh=header=="SYNCHROREP-PROFILES7";
+ if(!previous&&!second&&!third&&!fourth&&!fifth&&!sixth&&!seventh)
   throw std::runtime_error("Unsupported profiles file");
  std::vector<Profile> profiles;std::set<std::string> names;
  while(in>>std::ws&&!in.eof()){
-  Profile profile;int policy=0,deletions=0,preserve=1,recycle=1,mode=0,startup=0,verify=0;
+  Profile profile;int policy=0,deletions=0,preserve=1,recycle=1,mode=0,startup=0,verify=0,resume=1;
   if(!(in>>std::quoted(profile.name)>>std::quoted(profile.left)>>std::quoted(profile.right)
      >>std::quoted(profile.known_hosts)>>policy>>deletions))
    throw std::runtime_error("Malformed profiles file");
@@ -31,8 +34,17 @@ std::vector<Profile> ProfileStore::load() const {
   if(!previous&&!second&&!third && !(in>>mode))throw std::runtime_error("Missing sync mode in profile");
   if(!previous&&!second&&!third&&!fourth && !(in>>startup))
    throw std::runtime_error("Missing startup setting in profile");
-  if(header=="SYNCHROREP-PROFILES6" && !(in>>verify))
+  if((sixth||seventh) && !(in>>verify))
    throw std::runtime_error("Missing hash preference in profile");
+  if(seventh){
+   std::string patterns;
+   if(!(in>>resume>>std::quoted(patterns)) || (resume!=0&&resume!=1))
+    throw std::runtime_error("Invalid recovery or exclusion settings");
+   if(patterns.size()>16384)throw std::runtime_error("Exclusion patterns too long");
+   std::istringstream lines(patterns);std::string pattern;
+   while(std::getline(lines,pattern))if(!pattern.empty())profile.exclude_patterns.push_back(pattern);
+  }
+  profile.resume_interrupted=resume!=0;
   if(profile.name.empty()||profile.left.empty()||profile.right.empty()||
       profile.name.size()>500||policy<0||policy>4||(deletions!=0&&deletions!=1)||(preserve!=0&&preserve!=1)||(recycle!=0&&recycle!=1)||(mode!=0&&mode!=1)||(startup!=0&&startup!=1)||(startup&&mode!=1)||(verify!=0&&verify!=1)||
       !names.insert(profile.name).second)
@@ -55,6 +67,7 @@ void ProfileStore::save(const std::vector<Profile>& profiles) const {
  if(profiles.size()>1000)throw std::invalid_argument("Too many profiles");
  std::set<std::string> names;
  for(const auto& p:profiles) {
+  if(p.exclude_patterns.size()>256)throw std::invalid_argument("Too many exclusions");
   if(p.name.empty()||p.left.empty()||p.right.empty()||
      (p.auto_start&&p.mode!=SyncMode::Mirror)||
      !names.insert(p.name).second)
@@ -68,13 +81,16 @@ void ProfileStore::save(const std::vector<Profile>& profiles) const {
  {
   std::ofstream out(tmp,std::ios::binary|std::ios::trunc);
   if(!out)throw std::runtime_error("Cannot create profile file");
-  out<<"SYNCHROREP-PROFILES6\n";
+  out<<"SYNCHROREP-PROFILES7\n";
   for(const auto& p:profiles)
    out<<std::quoted(p.name)<<' '<<std::quoted(p.left)<<' '
       <<std::quoted(p.right)<<' '<<std::quoted(p.known_hosts)<<' '
       <<static_cast<int>(p.conflict)<<' '<<p.propagate_deletions<<' '
       <<p.preserve_changes<<' '<<p.recycle_local_deletions<<' '
-      <<static_cast<int>(p.mode)<<' '<<p.auto_start<<' '<<p.verify_hash<<'\n';
+      <<static_cast<int>(p.mode)<<' '<<p.auto_start<<' '<<p.verify_hash<<' '
+      <<p.resume_interrupted<<' '<<std::quoted([&]{std::string patterns;
+       for(const auto& pattern:p.exclude_patterns){if(!patterns.empty())patterns+='\n';patterns+=pattern;}
+       return patterns;}())<<'\n';
   out.flush();if(!out)throw std::runtime_error("Cannot write profiles");
  }
  std::error_code ec;
