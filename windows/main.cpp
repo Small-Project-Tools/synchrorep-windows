@@ -1233,8 +1233,10 @@ void reflowControls(HWND window) {
  moveControl(IdResume,cx,formY(198),cw,26);
  moveControl(IdExplorer,cx,formY(234),cw,26);
  moveControl(IdBehaviorInfo,cx,formY(282),cw,43);
- moveControl(IdLabelExclusions,cx,formY(338),cw,19);
- moveControl(IdExclusions,cx,formY(360),cw,std::max(54,panel.h-synchrorep::winui::compact_form_y(l,360)-17));
+ moveControl(IdLabelExclusions,cx,formY(327),cw,19);
+ const int exclusionsTop=synchrorep::winui::compact_form_y(l,349);
+ moveControl(IdExclusions,cx,cy+exclusionsTop,cw,
+             std::max(28,panel.h-exclusionsTop-12));
  moveControl(IdMirror,0,0,1,1);
 
  const int fy=footer.y+10;
