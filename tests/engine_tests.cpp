@@ -482,6 +482,9 @@ int main(){
   write(excludedLeft/"keep.txt","keep");
   write(excludedLeft/"ignored.tmp","private");
   write(excludedLeft/"cache"/"entry.txt","cache");
+#ifndef _WIN32
+  fs::create_symlink("entry.txt",excludedLeft/"cache"/"link-to-cache-entry");
+#endif
   write(excludedLeft/"sub"/"debug.log","log");
   write(excludedRight/"target-only.tmp","preserve");
   Options excludedOptions;
