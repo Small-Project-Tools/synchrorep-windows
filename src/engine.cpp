@@ -194,6 +194,7 @@ void validate_journal(const fs::path& file,const Endpoint& left,const Endpoint& 
  if(!input)throw std::runtime_error("Cannot read recovery journal");
  std::string header,a,b;
  std::getline(input,header);
+ if(!header.empty()&&header.back()=='\r')header.pop_back();
  if(header!="SYNCHROREP-RUN1")throw std::runtime_error("Invalid recovery journal format");
  if(!(input>>std::quoted(a)>>std::quoted(b))||
     a!=left.identity()||b!=right.identity())
