@@ -36,6 +36,7 @@ int main(int argc,char**argv){
   options.recycle_local_deletions=recycle;
   if(mirror)options.mode=synchrorep::SyncMode::Mirror;
   synchrorep::Engine engine(argv[3],options);
+  if(!dry&&resume)engine.prepare_recovery(*left,*right);
   const auto decisions=engine.plan(*left,*right);
   for(const auto& d:decisions){
    if(d.action==synchrorep::Action::None)continue;
