@@ -16,7 +16,13 @@ int main(){
  try {
   ProfileStore store(dir/"profiles.dat");
   assert(store.load().empty());
-  Profile p{"L\xC3\xA9" "a", "C:/un dossier", "sftp://127.0.0.1:22/a b/", "C:/Users/test/.ssh/known_hosts", ConflictPolicy::Newest, false};
+  Profile p{};
+  p.name="L\xC3\xA9" "a";
+  p.left="C:/un dossier";
+  p.right="sftp://127.0.0.1:22/a b/";
+  p.known_hosts="C:/Users/test/.ssh/known_hosts";
+  p.conflict=ConflictPolicy::Newest;
+  p.propagate_deletions=false;
   p.preserve_changes=false;
   p.recycle_local_deletions=false;
   p.mode=SyncMode::Mirror;
