@@ -571,6 +571,7 @@ void startSync(bool execute,bool trustedStartup=false){
                     settings.profile.verify_hash};
    options.exclude_patterns=settings.profile.exclude_patterns;
    Engine engine(statePath(*a,*b),std::move(options));
+   if(settings.execute&&settings.resume)engine.prepare_recovery(*a,*b);
    result.decisions=engine.plan(*a,*b,callbacks);
    if(settings.execute){
     const bool conflicts=std::any_of(result.decisions.begin(),result.decisions.end(),
