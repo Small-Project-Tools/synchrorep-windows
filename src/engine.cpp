@@ -233,6 +233,47 @@ std::set<std::string> journal_unfinished_operations(const fs::path& file){
  for(const auto& [name,count]:pending)if(count)result.insert(name);
  return result;
 }
+// An interrupted atomic write can leave a partial .synchrorep-write-N.tmp.
+// Only files corresponding to unfinished operations in a validated journal may
+// be discarded. Never remove an existing destination or unrelated files.
+void clear_interrupted_writes(const fs::path& journal,const Endpoint& left,const Endpoint& right){
+ const auto unfinished=journal_unfinished_operations(journal);
+ for(const auto* endpoint:{&left,&right}){
+  const auto* local=dynamic_cast<const LocalEndpoint*>(endpoint);
+  if(!local)continue;
+  for(const auto& name:unfinished){
+   if(name.empty()||name.find('\\')!=std::string::npos)throw std::runtime_error("Unsafe journal path");
+   const auto path=fs::path(std::u8string(reinterpret_cast<const char8_t*>(name.data()),name.size()));
+   if(path.is_absolute()||path.has_root_name())throw std::runtime_error("Unsafe journal path");
+   auto parent=local->root();
+   for(const auto& component:path.parent_path()){
+    if(component=="."||component=="..")throw std::runtime_error("Unsafe journal path");
+    parent/=component;
+    const auto status=fs::symlink_status(parent);
+    if(fs::is_symlink(status))throw std::runtime_error("Journal path contains symbolic link");
+    if(status.type()==fs::file_type::not_found)break;
+   }
+   if(path.filename()=="."||path.filename()==".."||path.filename().empty())
+    throw std::runtime_error("Unsafe journal path");
+   if(!fs::is_directory(parent))continue;
+   const auto prefix=path.filename().native()+fs::path(".synchrorep-write-").native();
+   const auto suffix=fs::path(".tmp").native();
+   for(const auto& item:fs::directory_iterator(parent)){
+    const auto filename=item.path().filename().native();
+    if(filename.size()<=prefix.size()+suffix.size()||
+       filename.compare(0,prefix.size(),prefix)!=0||
+       filename.compare(filename.size()-suffix.size(),suffix.size(),suffix)!=0)
+     continue;
+    const auto digits=filename.substr(prefix.size(),filename.size()-prefix.size()-suffix.size());
+    if(!std::all_of(digits.begin(),digits.end(),[](auto c){return c>='0'&&c<='9';}))
+     continue;
+    if(!fs::is_regular_file(item.symlink_status()))
+     throw std::runtime_error("Interrupted transfer artifact is not a regular file");
+    if(!fs::remove(item.path()))throw std::runtime_error("Cannot remove interrupted transfer artifact");
+   }
+  }
+ }
+}
 void begin_journal(const fs::path& file,const Endpoint& left,const Endpoint& right,
                    const std::vector<Decision>& decisions){
  auto parent=file.parent_path();
@@ -539,7 +580,10 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallback
  auto state=load(state_,left,right);
  auto journal=journal_path(state_);
  const bool pendingRecovery=!dry_run&&has_pending_recovery();
- if(pendingRecovery)validate_journal(journal,left,right);
+ if(pendingRecovery){
+  validate_journal(journal,left,right);
+  if(options_.resume_interrupted)clear_interrupted_writes(journal,left,right);
+ }
  auto leftScan=scan_entries(left,callbacks,Phase::ScanLeft);
  auto rightScan=scan_entries(right,callbacks,Phase::ScanRight);
  filter_exclusions(leftScan,options_.exclude_patterns);
