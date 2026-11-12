@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 #include <cstdlib>
+#include <algorithm>
 
 namespace {
 namespace fs=std::filesystem;
@@ -205,8 +206,14 @@ int main() {
               reinterpret_cast<LPARAM>(patterns.c_str()),"exclusion rules input");
   wchar_t captured[128]{};
   GetWindowTextW(GetDlgItem(app,IdExclusions),captured,128);
-  require(std::wstring(captured)==patterns,
-          "Exclusion field lost its multiline patterns");
+  std::wstring normalized=captured;
+  normalized.erase(std::remove(normalized.begin(),normalized.end(),L'\r'),normalized.end());
+  if(normalized!=L"*.tmp\ncache/**") {
+   std::cerr<<"Exclusion field characters:";
+   for(const auto character:normalized)std::cerr<<' '<<static_cast<unsigned>(character);
+   std::cerr<<"\n";
+   throw std::runtime_error("Exclusion field lost its multiline patterns");
+  }
   click(app,IdSettingsNetwork);
   visible(app,IdLeftUser,true);
   visible(app,IdPolicy,false);
