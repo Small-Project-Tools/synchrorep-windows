@@ -46,6 +46,8 @@ class Engine {
 public:
  explicit Engine(fs::path state,Options options={});
  bool has_pending_recovery()const;
+ // Explicit preparation for a confirmed recovery run; previews remain read-only.
+ void prepare_recovery(const Endpoint& left,const Endpoint& right)const;
  std::vector<Decision> plan(const Endpoint& left,const Endpoint& right,const RunCallbacks& callbacks={})const;
  std::vector<Decision> plan(const fs::path& left,const fs::path& right,const RunCallbacks& callbacks={})const;
  Result run(Endpoint& left,Endpoint& right,bool dry_run=false,const RunCallbacks& callbacks={});
