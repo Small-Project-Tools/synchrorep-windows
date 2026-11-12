@@ -18,6 +18,7 @@ import urllib.request
 
 REPOSITORY = "https://repo.msys2.org/mingw/mingw64/"
 ROOT_PACKAGE = "mingw-w64-x86_64-curl"
+SQLITE_PACKAGES = ("mingw-w64-x86_64-sqlite", "mingw-w64-x86_64-sqlite3")
 MIN_VERSION = (8, 20, 0)
 HEADERS = {"User-Agent": "Synchrorep Windows cross-build/1"}
 
@@ -67,7 +68,10 @@ def collect_packages(packages):
         for dependency in entry.get("DEPENDS", []):
             add(dependency)
     add(ROOT_PACKAGE)
-    add("mingw-w64-x86_64-sqlite3")
+    sqlite = next((name for name in SQLITE_PACKAGES if name in packages), None)
+    if sqlite is None:
+        raise RuntimeError("Missing MSYS2 SQLite dependency (sqlite or sqlite3)")
+    add(sqlite)
     return selected
 
 def unpack_package(package_path, destination, package_name, licenses):
@@ -82,7 +86,7 @@ def unpack_package(package_path, destination, package_name, licenses):
                 continue
             # Includes curl headers/import library and dependent Windows DLLs.
             is_dll=(parts[1]=="bin" and name.suffix.lower()==".dll")
-            is_sqlite_header=(package_name=="mingw-w64-x86_64-sqlite3" and parts[1]=="include" and name.name in ("sqlite3.h","sqlite3ext.h"))
+            is_sqlite_header=(package_name in SQLITE_PACKAGES and parts[1]=="include" and name.name in ("sqlite3.h","sqlite3ext.h"))
             is_sqlite_import=(package_name=="mingw-w64-x86_64-sqlite3" and parts[1]=="lib" and name.name=="libsqlite3.dll.a")
             is_curl_header=(package_name==ROOT_PACKAGE and parts[1]=="include"
                             and len(parts)>=4 and parts[2]=="curl")
