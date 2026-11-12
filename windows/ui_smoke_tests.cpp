@@ -14,12 +14,14 @@
 #include <string>
 #include <vector>
 #include <cstdlib>
+#include <algorithm>
 
 namespace {
 namespace fs=std::filesystem;
 constexpr int IdProfiles=101,IdSave=103,IdName=105,IdMirror=132;
 constexpr int IdLeft=106,IdRight=107,IdPreview=117,IdChanges=119,IdStatus=126;
 constexpr int IdLeftUser=108,IdPolicy=115,IdOpenRecovery=129;
+constexpr int IdResume=127,IdExclusions=135,IdLabelExclusions=232;
 constexpr int IdTabConfiguration=200,IdTabPreview=201,IdTabHistory=202,
  IdTabSettings=203,IdModeBidirectional=206,IdModeMirror=207,
  IdSettingsNetwork=208,IdSettingsBehavior=209;
@@ -193,6 +195,26 @@ int main() {
   click(app,IdSettingsBehavior);
   visible(app,IdPolicy,true);
   visible(app,IdLeftUser,false);
+  visible(app,IdResume,true);
+  visible(app,IdLabelExclusions,true);
+  visible(app,IdExclusions,true);
+  require(safeMessage(GetDlgItem(app,IdResume),BM_GETCHECK,0,0,
+                      "default interrupted recovery")==BST_CHECKED,
+          "Interrupted-run recovery checkbox must be enabled by default");
+  const std::wstring patterns=L"*.tmp\r\ncache/**";
+  safeMessage(GetDlgItem(app,IdExclusions),WM_SETTEXT,0,
+              reinterpret_cast<LPARAM>(patterns.c_str()),"exclusion rules input");
+  wchar_t captured[128]{};
+  safeMessage(GetDlgItem(app,IdExclusions),WM_GETTEXT,128,
+              reinterpret_cast<LPARAM>(captured),"read exclusion rules input");
+  std::wstring normalized=captured;
+  normalized.erase(std::remove(normalized.begin(),normalized.end(),L'\r'),normalized.end());
+  if(normalized!=L"*.tmp\ncache/**") {
+   std::cerr<<"Exclusion field characters:";
+   for(const auto character:normalized)std::cerr<<' '<<static_cast<unsigned>(character);
+   std::cerr<<"\n";
+   throw std::runtime_error("Exclusion field lost its multiline patterns");
+  }
   click(app,IdSettingsNetwork);
   visible(app,IdLeftUser,true);
   visible(app,IdPolicy,false);

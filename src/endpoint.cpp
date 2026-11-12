@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Sébastien Kus
 // SPDX-License-Identifier: GPL-3.0-only
 #include "synchrorep/endpoint.hpp"
+#include "synchrorep/exclusions.hpp"
 #include "synchrorep/remote_endpoint.hpp"
 #include "synchrorep/recycle_bin.hpp"
 #include <algorithm>
@@ -103,7 +104,12 @@ void atomic_replace(const fs::path& tmp,const fs::path& dst) {
  if(!ec)return;
 #ifdef _WIN32
  // Windows rename() does not replace an existing destination.
- if(fs::exists(dst) && ReplaceFileW(dst.c_str(),tmp.c_str(),nullptr,0,nullptr,nullptr))return;
+ if(fs::exists(dst)){
+  if(ReplaceFileW(dst.c_str(),tmp.c_str(),nullptr,0,nullptr,nullptr))return;
+  if(MoveFileExW(tmp.c_str(),dst.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH))return;
+  throw fs::filesystem_error("Unable to replace existing destination",tmp,dst,
+   std::error_code(GetLastError(),std::system_category()));
+ }
 #endif
  throw fs::filesystem_error("Unable to atomically replace destination",tmp,dst,ec);
 }
@@ -187,7 +193,8 @@ fs::path LocalEndpoint::within(const std::string& relative) const {
  if(!valid_relative(relative))throw std::invalid_argument("Invalid relative path: "+relative);
  return root_/fs::path(std::u8string(reinterpret_cast<const char8_t*>(relative.data()),relative.size()));
 }
-Snapshot LocalEndpoint::scan()const{
+Snapshot LocalEndpoint::scan()const{return scan_filtered({});}
+Snapshot LocalEndpoint::scan_filtered(const std::vector<std::string>& exclusions)const{
  static const std::regex unfinished(R"(\.synchrorep-(?:write-[0-9]+\.tmp|upload-[0-9]+)$)");
  // A disappearing entry means the snapshot is inconsistent. Retry the entire
  // scan rather than mistaking the missing entry for a deletion to propagate.
@@ -202,6 +209,11 @@ Snapshot LocalEndpoint::scan()const{
     if(std::regex_search(name,unfinished))
      throw std::runtime_error("Interrupted transfer artifact detected; inspect and remove manually: "+path.string());
     const auto key=path.lexically_relative(root_).generic_u8string();
+    const std::string relative(key.begin(),key.end());
+    if(detail::excluded(relative,exclusions)){
+     i.disable_recursion_pending();
+     continue;
+    }
     try {
      found.emplace(std::string(key.begin(),key.end()),stat(path));
     }catch(const fs::filesystem_error& error){

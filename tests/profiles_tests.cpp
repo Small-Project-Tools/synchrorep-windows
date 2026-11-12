@@ -16,12 +16,20 @@ int main(){
  try {
   ProfileStore store(dir/"profiles.dat");
   assert(store.load().empty());
-  Profile p{"L\xC3\xA9" "a", "C:/un dossier", "sftp://127.0.0.1:22/a b/", "C:/Users/test/.ssh/known_hosts", ConflictPolicy::Newest, false};
+  Profile p{};
+  p.name="L\xC3\xA9" "a";
+  p.left="C:/un dossier";
+  p.right="sftp://127.0.0.1:22/a b/";
+  p.known_hosts="C:/Users/test/.ssh/known_hosts";
+  p.conflict=ConflictPolicy::Newest;
+  p.propagate_deletions=false;
   p.preserve_changes=false;
   p.recycle_local_deletions=false;
   p.mode=SyncMode::Mirror;
   p.auto_start=true;
   p.verify_hash=true;
+  p.resume_interrupted=false;
+  p.exclude_patterns={"*.tmp","cache/**","**/*.log"};
   store.save({p});
   auto a=store.load();assert(a.size()==1);
   assert(a.at(0).name==p.name&&a.at(0).left==p.left&&a.at(0).right==p.right);
@@ -29,12 +37,13 @@ int main(){
   assert(!a.at(0).preserve_changes);
   assert(!a.at(0).recycle_local_deletions);
   assert(a.at(0).mode==SyncMode::Mirror&&a.at(0).auto_start&&a.at(0).verify_hash);
+  assert(!a.at(0).resume_interrupted&&a.at(0).exclude_patterns==p.exclude_patterns);
   // V1 profiles migrate automatically: preserved copies are enabled by default.
   std::ofstream(dir/"profiles.dat",std::ios::trunc)
    <<"SYNCHROREP-PROFILES1\n"
    <<"\"legacy\" \"C:/left\" \"C:/right\" \"\" 0 1\n";
   auto legacy=store.load();
-  assert(legacy.size()==1&&!legacy.at(0).verify_hash&&!legacy.at(0).auto_start&&legacy.at(0).preserve_changes&&legacy.at(0).recycle_local_deletions&&legacy.at(0).mode==SyncMode::Bidirectional);
+  assert(legacy.size()==1&&legacy.at(0).resume_interrupted&&!legacy.at(0).verify_hash&&!legacy.at(0).auto_start&&legacy.at(0).preserve_changes&&legacy.at(0).recycle_local_deletions&&legacy.at(0).mode==SyncMode::Bidirectional);
   std::ofstream(dir/"profiles.dat",std::ios::trunc)
    <<"SYNCHROREP-PROFILES2\n"
    <<"\"v2\" \"C:/left\" \"C:/right\" \"\" 0 1 0\n";

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 param(
     [Parameter(Mandatory=$true)][string]$ApplicationDirectory,
-    [string]$Output = "Synchrorep.Windows.0.13.8.sparse.msix"
+    [string]$Output = "Synchrorep.Windows.1.1.0.sparse.msix"
 )
 $ErrorActionPreference = 'Stop'
 $source = (Resolve-Path -LiteralPath $ApplicationDirectory).Path

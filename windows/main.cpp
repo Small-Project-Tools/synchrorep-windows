@@ -53,7 +53,7 @@ enum Control : int {
  IdRemember=113,IdLoadCredentials=114,IdPolicy=115,IdDeletes=116,
  IdPreview=117,IdExecute=118,IdChanges=119,IdExplorer=120,
  IdCancel=121,IdKeepLeft=122,IdKeepRight=123,IdSkip=124,IdProgress=125,IdStatus=126,IdResume=127,
- IdProtect=128,IdOpenRecovery=129,IdOpenLogs=130,IdRecycle=131,IdMirror=132,IdAutoStart=133,IdVerifyHash=134
+ IdProtect=128,IdOpenRecovery=129,IdOpenLogs=130,IdRecycle=131,IdMirror=132,IdAutoStart=133,IdVerifyHash=134,IdExclusions=135
 };
 enum ExtraControl : int {
  IdTabConfiguration=200,IdTabPreview=201,IdTabHistory=202,IdTabSettings=203,
@@ -65,7 +65,7 @@ enum ExtraControl : int {
  IdLabelPolicy=220,IdSummaryTotal=221,IdSummaryCopies=222,
  IdSummaryUpdates=223,IdSummaryDeletes=224,IdSummaryConflicts=225,
  IdHistoryInfo=226,IdPreviewInfo=227,IdNetworkInfo=228,IdBehaviorInfo=229,
- IdConfigurationHint=230,IdSummaryHint=231
+ IdConfigurationHint=230,IdSummaryHint=231,IdLabelExclusions=232
 };
 enum class MainTab {Configuration,Preview,History,Settings};
 enum class SettingsPane {Network,Behavior};
@@ -387,6 +387,10 @@ void loadProfile(int index){
  selectedProfile=index;overrides.clear();shownDecisions.clear();const auto& p=profiles.at(static_cast<std::size_t>(index));
  set(IdName,toWide(p.name));set(IdLeft,toWide(p.left));set(IdRight,toWide(p.right));
  set(IdKnownHosts,toWide(p.known_hosts));
+ std::string patterns;
+ for(const auto& pattern:p.exclude_patterns){if(!patterns.empty())patterns+="\r\n";patterns+=pattern;}
+ set(IdExclusions,toWide(patterns));
+ SendMessageW(controls[IdResume],BM_SETCHECK,p.resume_interrupted?BST_CHECKED:BST_UNCHECKED,0);
  SendMessageW(controls[IdPolicy],CB_SETCURSEL,static_cast<WPARAM>(p.conflict),0);
  SendMessageW(controls[IdDeletes],BM_SETCHECK,p.propagate_deletions?BST_CHECKED:BST_UNCHECKED,0);
  SendMessageW(controls[IdProtect],BM_SETCHECK,p.preserve_changes?BST_CHECKED:BST_UNCHECKED,0);
@@ -404,6 +408,12 @@ Profile fromForm(){
  Profile p; p.name=toUtf8(get(IdName));
  p.left=toUtf8(get(IdLeft));p.right=toUtf8(get(IdRight));
  p.known_hosts=toUtf8(get(IdKnownHosts));
+ p.resume_interrupted=SendMessageW(controls[IdResume],BM_GETCHECK,0,0)==BST_CHECKED;
+ std::istringstream patterns(toUtf8(get(IdExclusions)));std::string pattern;
+ while(std::getline(patterns,pattern)){
+  if(!pattern.empty()&&pattern.back()==static_cast<char>(13))pattern.pop_back();
+  if(!pattern.empty())p.exclude_patterns.push_back(pattern);
+ }
  const auto idx=SendMessageW(controls[IdPolicy],CB_GETCURSEL,0,0);
  p.conflict=idx>=0&&idx<=4?static_cast<ConflictPolicy>(idx):ConflictPolicy::Ask;
  p.propagate_deletions=SendMessageW(controls[IdDeletes],BM_GETCHECK,0,0)==BST_CHECKED;
@@ -488,7 +498,7 @@ void setBusy(bool running){
  for(int id:std::initializer_list<int>{IdProfiles,IdNew,IdSave,IdDelete,IdName,IdLeft,IdRight,
   IdLeftUser,IdLeftPassword,IdRightUser,IdRightPassword,IdKnownHosts,
   IdRemember,IdLoadCredentials,IdPolicy,IdDeletes,IdPreview,IdExecute,
-  IdExplorer,IdKeepLeft,IdKeepRight,IdSkip,IdResume,IdProtect,IdOpenRecovery,
+  IdExclusions,IdExplorer,IdKeepLeft,IdKeepRight,IdSkip,IdResume,IdProtect,IdOpenRecovery,
   IdOpenLogs,IdRecycle,IdMirror,IdAutoStart,IdVerifyHash,IdBrowseSource,
   IdBrowseDestination,IdModeBidirectional,IdModeMirror})
    EnableWindow(controls[id],!running);
@@ -520,7 +530,7 @@ JobSettings getJobSettings(bool execute){
  settings.rightPassword=toUtf8(get(IdRightPassword));
  settings.overrides=overrides;
  settings.execute=execute;
- settings.resume=SendMessageW(controls[IdResume],BM_GETCHECK,0,0)==BST_CHECKED;
+ settings.resume=settings.profile.resume_interrupted;
  return settings;
 }
 void startSync(bool execute,bool trustedStartup=false){
@@ -559,7 +569,9 @@ void startSync(bool execute,bool trustedStartup=false){
                    settings.overrides,settings.resume,settings.profile.preserve_changes,
                     settings.profile.recycle_local_deletions,settings.profile.mode,
                     settings.profile.verify_hash};
+   options.exclude_patterns=settings.profile.exclude_patterns;
    Engine engine(statePath(*a,*b),std::move(options));
+   if(settings.execute&&settings.resume)engine.prepare_recovery(*a,*b);
    result.decisions=engine.plan(*a,*b,callbacks);
    if(settings.execute){
     const bool conflicts=std::any_of(result.decisions.begin(),result.decisions.end(),
@@ -943,6 +955,8 @@ void onCommand(int id){
   for(int id:{IdDeletes,IdProtect,IdRecycle})
    SendMessageW(controls[id],BM_SETCHECK,BST_CHECKED,0);
   SendMessageW(controls[IdVerifyHash],BM_SETCHECK,BST_UNCHECKED,0);
+  SendMessageW(controls[IdResume],BM_SETCHECK,BST_CHECKED,0);
+  set(IdExclusions,L"");
   set(IdKnownHosts,L"");
   set(IdName,L"New synchronization");set(IdLeft,L"");set(IdRight,L"");
   clearCredentials();SendMessageW(controls[IdChanges],LB_RESETCONTENT,0,0);
@@ -1124,7 +1138,7 @@ void showTab(MainTab tab){
             IdLabelHosts,IdKnownHosts,IdRemember,IdLoadCredentials,IdNetworkInfo});
   else
    visible({IdLabelPolicy,IdPolicy,IdMirror /* hidden below */,
-            IdAutoStart,IdResume,IdExplorer,IdBehaviorInfo});
+            IdAutoStart,IdResume,IdExplorer,IdBehaviorInfo,IdLabelExclusions,IdExclusions});
   break;
  }
  // The original checkbox remains the source of truth for the persisted mode;
@@ -1219,6 +1233,10 @@ void reflowControls(HWND window) {
  moveControl(IdResume,cx,formY(198),cw,26);
  moveControl(IdExplorer,cx,formY(234),cw,26);
  moveControl(IdBehaviorInfo,cx,formY(282),cw,43);
+ moveControl(IdLabelExclusions,cx,formY(327),cw,19);
+ const int exclusionsTop=synchrorep::winui::compact_form_y(l,349);
+ moveControl(IdExclusions,cx,cy+exclusionsTop,cw,
+             std::max(28,panel.h-exclusionsTop-12));
  moveControl(IdMirror,0,0,1,1);
 
  const int fy=footer.y+10;
@@ -1342,6 +1360,10 @@ void initializeControls(HWND h){
  EnableWindow(controls[IdAutoStart],FALSE);
  place(h,L"BUTTON",L"Resume interrupted runs (rescan and reconcile)",
        BS_AUTOCHECKBOX|WS_TABSTOP,0,0,400,25,IdResume);
+ SendMessageW(controls[IdResume],BM_SETCHECK,BST_CHECKED,0);
+ namedLabel(h,L"Exclude patterns (one glob per line; e.g. *.tmp, cache/**)",IdLabelExclusions);
+ place(h,L"EDIT",L"",WS_TABSTOP|ES_MULTILINE|ES_AUTOVSCROLL|WS_VSCROLL|WS_BORDER,
+       0,0,400,85,IdExclusions);
  place(h,L"BUTTON",L"Explorer context menu",
        BS_AUTOCHECKBOX|WS_TABSTOP,0,0,350,25,IdExplorer);
  SendMessageW(controls[IdExplorer],BM_SETCHECK,

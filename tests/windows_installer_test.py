@@ -43,7 +43,7 @@ assert (build/"THIRD_PARTY_NOTICES.txt").stat().st_size>500
 lock=args.prefix/"dependencies.lock"
 assert lock.exists() and len(lock.read_text().splitlines())>=5
 assert "mingw-w64-x86_64-curl " in lock.read_text().lower()
-assert "mingw-w64-x86_64-sqlite3 " in lock.read_text().lower()
+assert any(f"mingw-w64-x86_64-{name} " in lock.read_text().lower() for name in ("sqlite", "sqlite3"))
 assert "libssh2" in lock.read_text().lower() and "openssl" in lock.read_text().lower()
 assert "<!-- RUNTIME" not in (build/"Synchrorep.wxs").read_text()
 print(f"Unified MSI validated: {len(listed)} curl and SSH runtime DLLs, license notices included")

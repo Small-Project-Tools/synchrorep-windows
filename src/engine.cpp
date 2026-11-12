@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Sébastien Kus
 // SPDX-License-Identifier: GPL-3.0-only
 #include "synchrorep/engine.hpp"
+#include "synchrorep/exclusions.hpp"
 #ifdef SYNCHROREP_SQLITE_ENABLED
 #include "synchrorep/sqlite_history.hpp"
 #endif
@@ -75,9 +76,11 @@ void hash_common(Snapshot& leftScan, Snapshot& rightScan,
   it->second.hash=sha256(*rightStream,it->second.size);
  }
 }
-Snapshot scan_entries(const Endpoint& endpoint,const RunCallbacks& callbacks,Phase phase){
+Snapshot scan_entries(const Endpoint& endpoint,const RunCallbacks& callbacks,Phase phase,
+                      const std::vector<std::string>& exclusions){
  check_cancel(callbacks);
- auto entries=endpoint.scan();
+ const auto* local=dynamic_cast<const LocalEndpoint*>(&endpoint);
+ auto entries=local?local->scan_filtered(exclusions):endpoint.scan();
  emit(callbacks,phase,0,entries.size());
  std::size_t done=0;
  for(const auto& [name,entry]:entries){
@@ -191,6 +194,7 @@ void validate_journal(const fs::path& file,const Endpoint& left,const Endpoint& 
  if(!input)throw std::runtime_error("Cannot read recovery journal");
  std::string header,a,b;
  std::getline(input,header);
+ if(!header.empty()&&header.back()=='\r')header.pop_back();
  if(header!="SYNCHROREP-RUN1")throw std::runtime_error("Invalid recovery journal format");
  if(!(input>>std::quoted(a)>>std::quoted(b))||
     a!=left.identity()||b!=right.identity())
@@ -232,6 +236,47 @@ std::set<std::string> journal_unfinished_operations(const fs::path& file){
  std::set<std::string> result;
  for(const auto& [name,count]:pending)if(count)result.insert(name);
  return result;
+}
+// An interrupted atomic write can leave a partial .synchrorep-write-N.tmp.
+// Only files corresponding to unfinished operations in a validated journal may
+// be discarded. Never remove an existing destination or unrelated files.
+void clear_interrupted_writes(const fs::path& journal,const Endpoint& left,const Endpoint& right){
+ const auto unfinished=journal_unfinished_operations(journal);
+ for(const auto* endpoint:{&left,&right}){
+  const auto* local=dynamic_cast<const LocalEndpoint*>(endpoint);
+  if(!local)continue;
+  for(const auto& name:unfinished){
+   if(name.empty()||name.find('\\')!=std::string::npos)throw std::runtime_error("Unsafe journal path");
+   const auto path=fs::path(std::u8string(reinterpret_cast<const char8_t*>(name.data()),name.size()));
+   if(path.is_absolute()||path.has_root_name())throw std::runtime_error("Unsafe journal path");
+   auto parent=local->root();
+   for(const auto& component:path.parent_path()){
+    if(component=="."||component=="..")throw std::runtime_error("Unsafe journal path");
+    parent/=component;
+    const auto status=fs::symlink_status(parent);
+    if(fs::is_symlink(status))throw std::runtime_error("Journal path contains symbolic link");
+    if(status.type()==fs::file_type::not_found)break;
+   }
+   if(path.filename()=="."||path.filename()==".."||path.filename().empty())
+    throw std::runtime_error("Unsafe journal path");
+   if(!fs::is_directory(parent))continue;
+   const auto prefix=path.filename().native()+fs::path(".synchrorep-write-").native();
+   const auto suffix=fs::path(".tmp").native();
+   for(const auto& item:fs::directory_iterator(parent)){
+    const auto filename=item.path().filename().native();
+    if(filename.size()<=prefix.size()+suffix.size()||
+       filename.compare(0,prefix.size(),prefix)!=0||
+       filename.compare(filename.size()-suffix.size(),suffix.size(),suffix)!=0)
+     continue;
+    const auto digits=filename.substr(prefix.size(),filename.size()-prefix.size()-suffix.size());
+    if(!std::all_of(digits.begin(),digits.end(),[](auto c){return c>='0'&&c<='9';}))
+     continue;
+    if(!fs::is_regular_file(item.symlink_status()))
+     throw std::runtime_error("Interrupted transfer artifact is not a regular file");
+    if(!fs::remove(item.path()))throw std::runtime_error("Cannot remove interrupted transfer artifact");
+   }
+  }
+ }
 }
 void begin_journal(const fs::path& file,const Endpoint& left,const Endpoint& right,
                    const std::vector<Decision>& decisions){
@@ -453,19 +498,45 @@ void ensure_external(const fs::path& archive,const Endpoint& left,const Endpoint
  }
 }
 }
-Engine::Engine(fs::path state,Options options):state_(std::move(state)),options_(options){}
+namespace {
+using detail::excluded;
+void filter_exclusions(Snapshot& snapshot,const std::vector<std::string>& patterns){
+ for(auto it=snapshot.begin();it!=snapshot.end();)
+  if(excluded(it->first,patterns))it=snapshot.erase(it);else ++it;
+}
+void filter_history(std::map<std::string,Pair>& history,const std::vector<std::string>& patterns){
+ for(auto it=history.begin();it!=history.end();)
+  if(excluded(it->first,patterns))it=history.erase(it);else ++it;
+}
+}
+Engine::Engine(fs::path state,Options options):state_(std::move(state)),options_(options){
+ for(const auto& pattern:options_.exclude_patterns)
+  if(pattern.empty()||pattern[0]=='/'||pattern.find('\\')!=std::string::npos||
+     pattern.find("..")!=std::string::npos||pattern.size()>256)
+   throw std::invalid_argument("Invalid exclusion pattern: "+pattern);
+}
 bool Engine::has_pending_recovery()const{
  std::error_code error;
  bool exists=fs::exists(journal_path(state_),error);
  if(error)throw std::runtime_error("Cannot inspect recovery journal");
  return exists;
 }
+void Engine::prepare_recovery(const Endpoint& left,const Endpoint& right)const{
+ if(!options_.resume_interrupted||!has_pending_recovery())return;
+ ensure_distinct(left,right,state_);
+ const auto journal=journal_path(state_);
+ validate_journal(journal,left,right);
+ clear_interrupted_writes(journal,left,right);
+}
 std::vector<Decision> Engine::plan(const Endpoint& left,const Endpoint& right,const RunCallbacks& callbacks)const{
  ensure_distinct(left,right,state_);
  CancellationBinding binding(left,right,callbacks);
  auto state=load(state_,left,right);
- auto l=scan_entries(left,callbacks,Phase::ScanLeft);
- auto r=scan_entries(right,callbacks,Phase::ScanRight);
+ auto l=scan_entries(left,callbacks,Phase::ScanLeft,options_.exclude_patterns);
+ auto r=scan_entries(right,callbacks,Phase::ScanRight,options_.exclude_patterns);
+ filter_exclusions(l,options_.exclude_patterns);
+ filter_exclusions(r,options_.exclude_patterns);
+ filter_history(state.history,options_.exclude_patterns);
  hash_common(l,r,left,right,callbacks,state.history.empty()||options_.verify_hash);
 
  if(options_.mode==SyncMode::Mirror){
@@ -484,9 +555,15 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallback
  auto state=load(state_,left,right);
  auto journal=journal_path(state_);
  const bool pendingRecovery=!dry_run&&has_pending_recovery();
- if(pendingRecovery)validate_journal(journal,left,right);
- auto leftScan=scan_entries(left,callbacks,Phase::ScanLeft);
- auto rightScan=scan_entries(right,callbacks,Phase::ScanRight);
+ if(pendingRecovery){
+  validate_journal(journal,left,right);
+  if(options_.resume_interrupted)prepare_recovery(left,right);
+ }
+ auto leftScan=scan_entries(left,callbacks,Phase::ScanLeft,options_.exclude_patterns);
+ auto rightScan=scan_entries(right,callbacks,Phase::ScanRight,options_.exclude_patterns);
+ filter_exclusions(leftScan,options_.exclude_patterns);
+ filter_exclusions(rightScan,options_.exclude_patterns);
+ filter_history(state.history,options_.exclude_patterns);
  hash_common(leftScan,rightScan,left,right,callbacks,state.history.empty()||options_.verify_hash);
 
  if(options_.mode==SyncMode::Mirror&&!dynamic_cast<const LocalEndpoint*>(&left))
@@ -619,8 +696,10 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallback
   }
  }
  check_cancel(callbacks);
- auto l2=scan_entries(left,callbacks,Phase::ScanLeft);
- auto r2=scan_entries(right,callbacks,Phase::ScanRight);
+ auto l2=scan_entries(left,callbacks,Phase::ScanLeft,options_.exclude_patterns);
+ auto r2=scan_entries(right,callbacks,Phase::ScanRight,options_.exclude_patterns);
+ filter_exclusions(l2,options_.exclude_patterns);
+ filter_exclusions(r2,options_.exclude_patterns);
 
  // There is deliberately no post-transfer checksum or integrity comparison.
  // Re-scan metadata only to persist the latest filesystem state.
