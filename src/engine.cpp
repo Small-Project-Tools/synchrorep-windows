@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Sébastien Kus
 // SPDX-License-Identifier: GPL-3.0-only
 #include "synchrorep/engine.hpp"
+#include "synchrorep/exclusions.hpp"
 #ifdef SYNCHROREP_SQLITE_ENABLED
 #include "synchrorep/sqlite_history.hpp"
 #endif
@@ -75,9 +76,11 @@ void hash_common(Snapshot& leftScan, Snapshot& rightScan,
   it->second.hash=sha256(*rightStream,it->second.size);
  }
 }
-Snapshot scan_entries(const Endpoint& endpoint,const RunCallbacks& callbacks,Phase phase){
+Snapshot scan_entries(const Endpoint& endpoint,const RunCallbacks& callbacks,Phase phase,
+                      const std::vector<std::string>& exclusions){
  check_cancel(callbacks);
- auto entries=endpoint.scan();
+ const auto* local=dynamic_cast<const LocalEndpoint*>(&endpoint);
+ auto entries=local?local->scan_filtered(exclusions):endpoint.scan();
  emit(callbacks,phase,0,entries.size());
  std::size_t done=0;
  for(const auto& [name,entry]:entries){
@@ -495,43 +498,7 @@ void ensure_external(const fs::path& archive,const Endpoint& left,const Endpoint
 }
 }
 namespace {
-bool wildcard_match(std::string_view pattern,std::string_view path){
- std::vector<unsigned char> memo((pattern.size()+1)*(path.size()+1),0);
- const auto width=path.size()+1;
- memo[pattern.size()*width+path.size()]=1;
- for(std::size_t i=pattern.size();i-->0;){
-  for(std::size_t j=path.size()+1;j-->0;){
-   const auto pos=i*width+j;
-   if(pattern[i]=='*'){
-    const bool recursive=i+1<pattern.size()&&pattern[i+1]=='*';
-    const auto next=recursive?i+2:i+1;
-    memo[pos]=memo[next*width+j] ||
-      (j<path.size() && (recursive||path[j]!='/') && memo[pos+1]);
-    if(recursive&&next<pattern.size()&&pattern[next]=='/')
-     memo[pos] |= memo[(next+1)*width+j];
-   }else if(j<path.size() && ((pattern[i]=='?'&&path[j]!='/')||pattern[i]==path[j]))
-    memo[pos]=memo[(i+1)*width+j+1];
-  }
- }
- return memo[0]!=0;
-}
-bool excluded(std::string_view path,const std::vector<std::string>& patterns){
- for(const auto& pattern:patterns){
-  if(pattern.empty())continue;
-  if(pattern.size()>3&&pattern.ends_with("/**")&&
-     path==std::string_view(pattern).substr(0,pattern.size()-3))return true;
-  const bool basename=pattern.find('/')==std::string::npos;
-  auto candidate=path;
-  while(true){
-   const auto name=basename?candidate.substr(candidate.find_last_of('/')==std::string_view::npos?0:candidate.find_last_of('/')+1):candidate;
-   if(wildcard_match(pattern,name))return true;
-   auto slash=candidate.rfind('/');
-   if(slash==std::string_view::npos)break;
-   candidate=candidate.substr(0,slash);
-  }
- }
- return false;
-}
+using detail::excluded;
 void filter_exclusions(Snapshot& snapshot,const std::vector<std::string>& patterns){
  for(auto it=snapshot.begin();it!=snapshot.end();)
   if(excluded(it->first,patterns))it=snapshot.erase(it);else ++it;
@@ -564,8 +531,8 @@ std::vector<Decision> Engine::plan(const Endpoint& left,const Endpoint& right,co
  ensure_distinct(left,right,state_);
  CancellationBinding binding(left,right,callbacks);
  auto state=load(state_,left,right);
- auto l=scan_entries(left,callbacks,Phase::ScanLeft);
- auto r=scan_entries(right,callbacks,Phase::ScanRight);
+ auto l=scan_entries(left,callbacks,Phase::ScanLeft,options_.exclude_patterns);
+ auto r=scan_entries(right,callbacks,Phase::ScanRight,options_.exclude_patterns);
  filter_exclusions(l,options_.exclude_patterns);
  filter_exclusions(r,options_.exclude_patterns);
  filter_history(state.history,options_.exclude_patterns);
@@ -591,8 +558,8 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallback
   validate_journal(journal,left,right);
   if(options_.resume_interrupted)prepare_recovery(left,right);
  }
- auto leftScan=scan_entries(left,callbacks,Phase::ScanLeft);
- auto rightScan=scan_entries(right,callbacks,Phase::ScanRight);
+ auto leftScan=scan_entries(left,callbacks,Phase::ScanLeft,options_.exclude_patterns);
+ auto rightScan=scan_entries(right,callbacks,Phase::ScanRight,options_.exclude_patterns);
  filter_exclusions(leftScan,options_.exclude_patterns);
  filter_exclusions(rightScan,options_.exclude_patterns);
  filter_history(state.history,options_.exclude_patterns);
@@ -728,8 +695,8 @@ Result Engine::run(Endpoint& left,Endpoint& right,bool dry_run,const RunCallback
   }
  }
  check_cancel(callbacks);
- auto l2=scan_entries(left,callbacks,Phase::ScanLeft);
- auto r2=scan_entries(right,callbacks,Phase::ScanRight);
+ auto l2=scan_entries(left,callbacks,Phase::ScanLeft,options_.exclude_patterns);
+ auto r2=scan_entries(right,callbacks,Phase::ScanRight,options_.exclude_patterns);
  filter_exclusions(l2,options_.exclude_patterns);
  filter_exclusions(r2,options_.exclude_patterns);
 
