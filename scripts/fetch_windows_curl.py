@@ -87,7 +87,7 @@ def unpack_package(package_path, destination, package_name, licenses):
             # Includes curl headers/import library and dependent Windows DLLs.
             is_dll=(parts[1]=="bin" and name.suffix.lower()==".dll")
             is_sqlite_header=(package_name in SQLITE_PACKAGES and parts[1]=="include" and name.name in ("sqlite3.h","sqlite3ext.h"))
-            is_sqlite_import=(package_name=="mingw-w64-x86_64-sqlite3" and parts[1]=="lib" and name.name=="libsqlite3.dll.a")
+            is_sqlite_import=(package_name in SQLITE_PACKAGES and parts[1]=="lib" and name.name=="libsqlite3.dll.a")
             is_curl_header=(package_name==ROOT_PACKAGE and parts[1]=="include"
                             and len(parts)>=4 and parts[2]=="curl")
             is_curl_import=(package_name==ROOT_PACKAGE and parts[1]=="lib"
