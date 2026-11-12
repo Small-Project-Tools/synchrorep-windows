@@ -8,6 +8,11 @@ Portage natif C++20 de [Synchrorep pour GNOME](https://github.com/sebk69/Synchro
 
 ## Fonctionnalités
 
+**Version 1.1.0-RC1 :** reprise après interruption activée par défaut,
+patterns d'exclusion configurables (un glob par ligne) et correctifs WSL
+pour les remplacements et la reprise après coupure brutale.
+
+
 - Synchronisation bidirectionnelle avec prévisualisation, historique, résolution des conflits et annulation.
 - **Miroir local → cible** en continu : copie, modification, suppression et réconciliation SHA-256, sans retour vers la source.
 - Démarrage automatique par profil miroir à l’ouverture de session Windows (HKCU Run).
@@ -26,7 +31,7 @@ The project is preparing an application to SignPath Foundation. **Current builds
 
 ## Installation Windows
 
-Récupérer le fichier `synchrorep-windows-1.0.5-x64.msi` dans les
+Récupérer le fichier `synchrorep-windows-1.1.0-x64.msi` dans les
 [artefacts de la dernière compilation Windows](https://github.com/Small-Project-Tools/synchrorep-windows/actions/workflows/distribution.yml).
 
 La CI GitHub Actions Linux/MinGW construit désormais **l’unique édition complète** en utilisant
@@ -83,7 +88,7 @@ cmake -S . -B build-win -DSYNCHROREP_REMOTE=ON \
   -DSQLite3_LIBRARY="$PWD/build-msys2/win64/lib/libsqlite3.dll.a"
 cmake --build build-win --parallel
 python3 scripts/stage_windows_runtime.py --prefix build-msys2/win64 --build build-win
-python3 scripts/render_windows_installer.py --build build-win --version 1.0.5
+python3 scripts/render_windows_installer.py --build build-win --version 1.1.0
 python3 tests/windows_installer_test.py --build build-win
 ```
 
@@ -141,11 +146,11 @@ L'exécutable Synchrorep dépend de DLL réseau, notamment `libcurl-4.dll`,
 
 Deux distributions complètes sont proposées :
 
-- `synchrorep-windows-1.0.5-x64.msi` : installation standard avec
+- `synchrorep-windows-1.1.0-x64.msi` : installation standard avec
   menu contextuel Explorer et toutes les DLL au même endroit
   (`C:\Program Files\Synchrorep`).
-- `synchrorep-windows-1.0.5-x64-portable.zip` : extraire **toute**
-  l'archive dans un dossier avant d'exécuter `Synchrorep-1.0.5\synchrorep.exe`.
+- `synchrorep-windows-1.1.0-x64-portable.zip` : extraire **toute**
+  l'archive dans un dossier avant d'exécuter `Synchrorep-1.1.0\synchrorep.exe`.
   Tous les fichiers DLL doivent rester à côté de l'exécutable.
 
 La CI refuse dorénavant de publier une archive portable incomplète.
@@ -180,7 +185,7 @@ L'option « miroir continu » reste distincte de la synchronisation
 bidirectionnelle par défaut et doit être activée explicitement.
 
 
-## Windows 1.0.5 : comparaison et fenetre de synchronisation
+## Windows 1.1.0 : comparaison et fenetre de synchronisation
 
 - Le dialogue natif Windows reste utilise pour choisir une destination. Il
   propose l'emplacement WSL \wsl.localhost lorsque Windows l'expose et
