@@ -1588,7 +1588,7 @@ LRESULT CALLBACK windowProc(HWND window,UINT message,WPARAM w,LPARAM l){
    PostMessageW(window,WM_NULL,0,0);
    if(action==901)showMainWindow();
    if(action==902&&job)job->stop();
-   if(action==903)SendMessageW(window,WM_CLOSE,0,0);
+   if(action==903 && confirmDiscardChanges())DestroyWindow(window);
    return 0;
   }
   return 0;
