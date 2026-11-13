@@ -43,6 +43,24 @@ Le contrôleur Win32 `windows/main.cpp` délègue la mise en page et le thème
 à `windows/ui_layout.cpp` et `windows/ui_theme.cpp`. Les comportements de
 synchronisation et les règles de sécurité du moteur restent inchangés.
 
+## Feedback et protection des modifications (UX 1.1)
+
+Modifier le nom, les chemins source/destination, le fichier known_hosts,
+les patterns d'exclusion ou les options du profil affiche
+**Synchrorep - Unsaved profile changes** dans la barre de titre.
+Le bandeau d'etat signale egalement les modifications non enregistrees.
+
+**Save profile** enregistre la fiche et affiche **Profile saved successfully**.
+Changer de profil, cliquer sur **+ New** ou fermer la fenetre demande une
+confirmation si la fiche a ete modifiee sans enregistrement. **No** est
+selectionne par defaut afin d'eviter la perte accidentelle de saisies.
+La commande **Exit** du menu de notification respecte la meme protection,
+sans perdre sa capacite d'arreter une synchronisation en cours.
+
+Les valeurs initiales du formulaire ne sont pas considerees comme des
+modifications utilisateur. Cette protection concerne les parametres du profil ;
+les mots de passe restent geres separement par Windows Credential Manager.
+
 ## Configuration
 
 Une fiche comprend son nom, deux emplacements, un fichier `known_hosts` (SFTP), la stratégie générale en cas de conflit et l'option de propagation des suppressions. Le fichier `profiles.dat` conserve ces informations sans identifiants.
@@ -66,7 +84,7 @@ isolé exécuté sur les runners Windows.
 
 ## Recuperation
 
-En cas de synchronisation interrompue, cocher Resume interrupted run apres examen de Preview pour autoriser une nouvelle analyse.
+La reprise d'une synchronisation interrompue est activee par defaut. La case Resume interrupted runs peut etre decochee par profil. Examiner Preview avant de lancer une operation destructive.
 
 
 ## Versions conservees et journaux
