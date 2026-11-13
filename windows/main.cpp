@@ -1787,10 +1787,14 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR,int show){
    }else{
     if(!profiles.empty())loadProfile(0);
     else{
+     // Initial defaults are not user edits.
+     suppressDirtyTracking=true;
      set(IdName,L"New synchronization");
      wchar_t user[32768]{};
      DWORD n=GetEnvironmentVariableW(L"USERPROFILE",user,32768);
      if(n>0&&n<32768)set(IdKnownHosts,std::wstring(user)+L"\\.ssh\\known_hosts");
+     suppressDirtyTracking=false;
+     setFormDirty(false);
     }
     ShowWindow(window,show);
    }
