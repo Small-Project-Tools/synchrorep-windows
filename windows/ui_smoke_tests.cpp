@@ -322,7 +322,9 @@ int main() {
           "Preview did not list the source file");
   require(!fs::exists(isolated/"target"/"readme.txt"),
           "Preview incorrectly modified the destination");
-  // Preview inputs are unsaved edits. Save the isolated profile so the normal\n  // close path does not need to dismiss the intentional safety prompt.\n  click(app,IdSave);\n  std::cerr<<"UI smoke: preview passed\n";
+  // Preview edits are saved before closing the isolated test window.
+  click(app,IdSave);
+  std::cerr<<"UI smoke: preview passed\n";
   }else {
    std::cerr<<"UI smoke: interactive preview reserved for Wine/Windows desktop\n";
   }
