@@ -84,6 +84,8 @@ HFONT font=nullptr;
 std::vector<Profile> profiles;
 int selectedProfile=-1;
 bool loading=false;
+bool formDirty=false;
+bool suppressDirtyTracking=false;
 std::unique_ptr<synchrorep::winui::AsyncJob> job;
 bool busy=false;
 double progressFraction=0.0;
@@ -283,6 +285,40 @@ std::wstring get(int id){
  return result;
 }
 void set(int id,const std::wstring& text){SetWindowTextW(controls[id],text.c_str());}
+void setFormDirty(bool modified){
+ if(formDirty==modified)return;
+ formDirty=modified;
+ if(mainWindow)SetWindowTextW(mainWindow,modified
+  ?L"Synchrorep - Unsaved profile changes":L"Synchrorep");
+ if(!busy && controls[IdStatus])
+  set(IdStatus,modified?L"Unsaved changes - Save profile to keep them."
+                       :L"Ready");
+}
+bool confirmDiscardChanges(){
+ if(!formDirty)return true;
+ return MessageBoxW(mainWindow,
+  L"This profile has unsaved changes.\n\n"
+  L"Discard those changes and continue?\n"
+  L"Select No to return and save the profile.",
+  L"Discard unsaved profile changes?",
+  MB_YESNO|MB_ICONWARNING|MB_DEFBUTTON2)==IDYES;
+}
+bool isProfileField(int id){
+ switch(id){
+ case IdName:case IdLeft:case IdRight:case IdKnownHosts:case IdExclusions:
+  return true;
+ default:return false;
+ }
+}
+bool isProfileOption(int id){
+ switch(id){
+ case IdPolicy:case IdDeletes:case IdProtect:case IdRecycle:
+ case IdVerifyHash:case IdResume:case IdAutoStart:
+ case IdModeMirror:case IdModeBidirectional:
+  return true;
+ default:return false;
+ }
+}
 std::filesystem::path appDirectory(){
  wchar_t local[32768]{};
  const auto length=GetEnvironmentVariableW(L"LOCALAPPDATA",local,32768);
@@ -384,6 +420,7 @@ void clearCredentials(){
 }
 void loadProfile(int index){
  if(index<0||index>=static_cast<int>(profiles.size()))return;
+ suppressDirtyTracking=true;
  selectedProfile=index;overrides.clear();shownDecisions.clear();const auto& p=profiles.at(static_cast<std::size_t>(index));
  set(IdName,toWide(p.name));set(IdLeft,toWide(p.left));set(IdRight,toWide(p.right));
  set(IdKnownHosts,toWide(p.known_hosts));
@@ -403,6 +440,8 @@ void loadProfile(int index){
  clearCredentials();updateList();refreshSummary();updateModeDescription();
  InvalidateRect(controls[IdModeBidirectional],nullptr,FALSE);
  InvalidateRect(controls[IdModeMirror],nullptr,FALSE);
+ suppressDirtyTracking=false;
+ setFormDirty(false);
 }
 Profile fromForm(){
  Profile p; p.name=toUtf8(get(IdName));
@@ -938,15 +977,24 @@ bool explorerMenuInstalled(){
  RegCloseKey(key);return true;
 }
 void onCommand(int id){
+ if(!busy && !loading && !suppressDirtyTracking && isProfileOption(id))setFormDirty(true);
  switch(id){
  case IdProfiles: {
   if(loading)break;
   auto idx=SendMessageW(controls[IdProfiles],LB_GETCURSEL,0,0);
-  if(idx>=0)loadProfile(static_cast<int>(idx));
+  if(idx>=0 && idx!=selectedProfile){
+   if(!confirmDiscardChanges()){
+    SendMessageW(controls[IdProfiles],LB_SETCURSEL,selectedProfile,0);
+    break;
+   }
+   loadProfile(static_cast<int>(idx));
+  }
   break;
  }
  case IdNew:
   if(busy)break;
+  if(!confirmDiscardChanges())break;
+  suppressDirtyTracking=true;
   selectedProfile=-1;overrides.clear();shownDecisions.clear();
   SendMessageW(controls[IdMirror],BM_SETCHECK,BST_UNCHECKED,0);
   SendMessageW(controls[IdAutoStart],BM_SETCHECK,BST_UNCHECKED,0);
@@ -960,7 +1008,10 @@ void onCommand(int id){
   set(IdKnownHosts,L"");
   set(IdName,L"New synchronization");set(IdLeft,L"");set(IdRight,L"");
   clearCredentials();SendMessageW(controls[IdChanges],LB_RESETCONTENT,0,0);
-  updateList();refreshSummary();updateModeDescription();showTab(MainTab::Configuration);break;
+  updateList();refreshSummary();updateModeDescription();showTab(MainTab::Configuration);
+  suppressDirtyTracking=false;
+  setFormDirty(false);
+  SetFocus(controls[IdName]);break;
  case IdSave:{
   if(busy)throw std::runtime_error("Cannot edit profiles during synchronization");
   auto p=fromForm();
@@ -991,7 +1042,9 @@ void onCommand(int id){
   if(!GetModuleFileNameW(nullptr,module,32768))
    throw std::runtime_error("Cannot locate application for automatic startup");
   synchrorep::winui::synchronize_startup(profiles,module);
-  updateList();break;
+  updateList();
+  setFormDirty(false);
+  set(IdStatus,L"Profile saved successfully.");break;
  }
  case IdDelete:
   if(busy)throw std::runtime_error("Cannot delete a profile while synchronization is running");
@@ -1035,7 +1088,8 @@ void onCommand(int id){
    SendMessageW(controls[IdChanges],LB_RESETCONTENT,0,0);
    if(syncChanges)SendMessageW(syncChanges,LB_RESETCONTENT,0,0);
    refreshSummary();set(IdName,L"");set(IdLeft,L"");set(IdRight,L"");
-   updateList();
+   updateList();setFormDirty(false);
+   set(IdStatus,L"Profile deleted. Local files were not changed.");
   }break;
  case IdRemember:{
   int count=static_cast<int>(storeCredential(IdLeft,IdLeftUser,IdLeftPassword))+
@@ -1482,6 +1536,10 @@ LRESULT CALLBACK windowProc(HWND window,UINT message,WPARAM w,LPARAM l){
   return reinterpret_cast<LRESULT>(synchrorep::winui::ui_card_brush());
  }
  case WM_COMMAND:
+  if(HIWORD(w)==EN_CHANGE && isProfileField(LOWORD(w))){
+   if(!loading && !suppressDirtyTracking && !busy)setFormDirty(true);
+   return 0;
+  }
   if(LOWORD(w)==IdProfiles&&HIWORD(w)!=LBN_SELCHANGE)return 0;
   if(LOWORD(w)==IdPolicy&&HIWORD(w)!=CBN_SELCHANGE)return 0;
   if(LOWORD(w)!=IdProfiles&&LOWORD(w)!=IdPolicy&&HIWORD(w)!=BN_CLICKED)return 0;
@@ -1500,6 +1558,7 @@ LRESULT CALLBACK windowProc(HWND window,UINT message,WPARAM w,LPARAM l){
    ShowWindow(window,SW_HIDE);
    return 0;
   }
+  if(!confirmDiscardChanges())return 0;
   DestroyWindow(window);
   return 0;
  case WM_SYSCOMMAND:
@@ -1529,7 +1588,7 @@ LRESULT CALLBACK windowProc(HWND window,UINT message,WPARAM w,LPARAM l){
    PostMessageW(window,WM_NULL,0,0);
    if(action==901)showMainWindow();
    if(action==902&&job)job->stop();
-   if(action==903)DestroyWindow(window);
+   if(action==903)SendMessageW(window,WM_CLOSE,0,0);
    return 0;
   }
   return 0;
