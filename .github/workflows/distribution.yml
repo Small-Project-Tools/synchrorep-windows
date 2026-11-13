@@ -186,7 +186,7 @@ jobs:
           if-no-files-found: error
 
   prerelease:
-    name: Publish 1.1.0-RC1 prerelease
+    name: Publish 1.1.0-RC2 prerelease
     needs: [windows-wine-smoke, windows-msi-install]
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
@@ -204,7 +204,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tag='1.1.0-RC1'
+          tag='1.1.0-RC2'
           grep -q 'project(synchrorep_windows VERSION 1.1.0 ' CMakeLists.txt
           test -s build-win/synchrorep-windows-1.1.0-x64.msi
           test -s build-win/synchrorep-windows-1.1.0-x64-portable.zip
@@ -217,6 +217,6 @@ jobs:
             build-win/synchrorep-windows-1.1.0-x64-portable.zip \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "Synchrorep 1.1.0-RC1" \
+            --title "Synchrorep 1.1.0-RC2" \
             --prerelease \
-            --notes "Release candidate 1.1.0: default interruption recovery, configurable glob exclusions, WSL UNC overwrite and crash-recovery fixes. Includes Windows GUI, local/FTP/SFTP/WSL synchronization, Explorer integration, complete MSI and portable distribution. CI: Linux, MSVC 2022/2025, MinGW, Wine, MSI install/uninstall. Unsigned GPLv3 binaries."
+            --notes "1.1.0-RC2 UX update: unsaved profile changes are visible, save acknowledgments are explicit, and switching/creating/closing prompts before discarding changes (No by default). Includes RC1 WSL recovery and glob exclusion fixes. Windows MSI and portable ZIP; validated on Linux, MSVC 2022/2025, Wine and Windows MSI install/uninstall. Unsigned GPLv3 binaries."

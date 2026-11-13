@@ -18,7 +18,7 @@
 
 namespace {
 namespace fs=std::filesystem;
-constexpr int IdProfiles=101,IdSave=103,IdName=105,IdMirror=132;
+constexpr int IdProfiles=101,IdNew=102,IdSave=103,IdName=105,IdMirror=132;
 constexpr int IdLeft=106,IdRight=107,IdPreview=117,IdChanges=119,IdStatus=126;
 constexpr int IdLeftUser=108,IdPolicy=115,IdOpenRecovery=129;
 constexpr int IdResume=127,IdExclusions=135,IdLabelExclusions=232;
@@ -131,6 +131,10 @@ int main() {
   }
   require(app!=nullptr,"Synchrorep main window did not appear");
   std::cerr<<"UI smoke: main window created\n";
+  wchar_t initialTitle[128]{};
+  GetWindowTextW(app,initialTitle,128);
+  require(std::wstring(initialTitle)==L"Synchrorep",
+          "Programmatic startup defaults incorrectly marked profile dirty");
   require(SetWindowPos(app,nullptr,0,0,990,610,
     SWP_NOMOVE|SWP_NOZORDER|SWP_SHOWWINDOW|SWP_ASYNCWINDOWPOS)!=FALSE,
     "Cannot resize isolated UI");
@@ -225,6 +229,62 @@ int main() {
   require(!fs::exists(isolated/"Synchrorep"/"profiles.dat"),
           "Tab navigation unexpectedly created a synchronization profile");
 
+  // Editing a persisted field must be obvious before the user navigates.
+  std::cerr<<"UI smoke: testing profile save feedback and unsaved warning\n";
+  const std::wstring name=L"UI feedback regression";
+  safeMessage(GetDlgItem(app,IdName),WM_SETTEXT,0,
+              reinterpret_cast<LPARAM>(name.c_str()),"profile name input");
+  const auto inputSource=isolated/L"feedback-source";
+  const auto inputTarget=isolated/L"feedback-target";
+  fs::create_directories(inputSource);
+  fs::create_directories(inputTarget);
+  safeMessage(GetDlgItem(app,IdLeft),WM_SETTEXT,0,
+              reinterpret_cast<LPARAM>(inputSource.c_str()),"profile source");
+  safeMessage(GetDlgItem(app,IdRight),WM_SETTEXT,0,
+              reinterpret_cast<LPARAM>(inputTarget.c_str()),"profile target");
+  wchar_t caption[128]{};
+  GetWindowTextW(app,caption,128);
+  require(std::wstring(caption).find(L"Unsaved")!=std::wstring::npos,
+          "Unsaved profile changes not shown in window title");
+  click(app,IdSave);
+  GetWindowTextW(app,caption,128);
+  require(std::wstring(caption)==L"Synchrorep",
+          "Saving did not clear the dirty window title");
+  require(fs::exists(isolated/L"Synchrorep"/L"profiles.dat"),
+          "Save did not persist the synchronization profile");
+
+  const std::wstring revised=L"Modified but not saved";
+  safeMessage(GetDlgItem(app,IdName),WM_SETTEXT,0,
+              reinterpret_cast<LPARAM>(revised.c_str()),"modify saved profile");
+  GetWindowTextW(app,caption,128);
+  require(std::wstring(caption).find(L"Unsaved")!=std::wstring::npos,
+          "Editing an existing profile did not set the dirty title");
+  // A new profile must not silently discard modifications. Drive the owner-
+  // modal confirmation asynchronously, reject it, and verify the edit remains.
+  require(PostMessageW(app,WM_COMMAND,MAKEWPARAM(IdNew,BN_CLICKED),
+                       reinterpret_cast<LPARAM>(GetDlgItem(app,IdNew)))!=FALSE,
+          "Cannot trigger New profile action");
+  HWND confirmation=nullptr;
+  for(int attempt=0;attempt<100;++attempt){
+   HWND popup=FindWindowW(nullptr,L"Discard unsaved profile changes?");
+   DWORD ownerPid=0;
+   if(popup)GetWindowThreadProcessId(popup,&ownerPid);
+   if(ownerPid==process.dwProcessId){confirmation=popup;break;}
+   Sleep(50);
+  }
+  require(confirmation!=nullptr,"New profile did not ask before losing edits");
+  safeMessage(confirmation,WM_COMMAND,MAKEWPARAM(IDNO,BN_CLICKED),0,
+              "reject discard");
+  wchar_t retained[128]{};
+  safeMessage(GetDlgItem(app,IdName),WM_GETTEXT,128,
+              reinterpret_cast<LPARAM>(retained),"verify retained profile");
+  require(std::wstring(retained)==revised,
+          "Rejected discard did not preserve the edited profile");
+  click(app,IdSave);
+  GetWindowTextW(app,caption,128);
+  require(std::wstring(caption)==L"Synchrorep",
+          "Saving after cancelling discard did not clear dirty status");
+
   std::cerr<<"UI smoke: navigation passed\n";
   const bool interactivePreview=
    GetEnvironmentVariableW(L"SYNCHROREP_INTERACTIVE_UI_PREVIEW",nullptr,0)>0;
@@ -262,6 +322,8 @@ int main() {
           "Preview did not list the source file");
   require(!fs::exists(isolated/"target"/"readme.txt"),
           "Preview incorrectly modified the destination");
+  // Preview edits are saved before closing the isolated test window.
+  click(app,IdSave);
   std::cerr<<"UI smoke: preview passed\n";
   }else {
    std::cerr<<"UI smoke: interactive preview reserved for Wine/Windows desktop\n";
