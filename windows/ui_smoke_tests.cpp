@@ -131,6 +131,10 @@ int main() {
   }
   require(app!=nullptr,"Synchrorep main window did not appear");
   std::cerr<<"UI smoke: main window created\n";
+  wchar_t initialTitle[128]{};
+  GetWindowTextW(app,initialTitle,128);
+  require(std::wstring(initialTitle)==L"Synchrorep",
+          "Programmatic startup defaults incorrectly marked profile dirty");
   require(SetWindowPos(app,nullptr,0,0,990,610,
     SWP_NOMOVE|SWP_NOZORDER|SWP_SHOWWINDOW|SWP_ASYNCWINDOWPOS)!=FALSE,
     "Cannot resize isolated UI");
