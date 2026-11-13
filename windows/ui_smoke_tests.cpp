@@ -266,12 +266,10 @@ int main() {
           "Cannot trigger New profile action");
   HWND confirmation=nullptr;
   for(int attempt=0;attempt<100;++attempt){
-   HWND popup=GetWindow(app,GW_ENABLEDPOPUP);
-   wchar_t popupTitle[128]{};
-   if(popup&&popup!=app)GetWindowTextW(popup,popupTitle,128);
-   if(std::wstring(popupTitle)==L"Discard unsaved profile changes?"){
-    confirmation=popup;break;
-   }
+   HWND popup=FindWindowW(nullptr,L"Discard unsaved profile changes?");
+   DWORD ownerPid=0;
+   if(popup)GetWindowThreadProcessId(popup,&ownerPid);
+   if(ownerPid==process.dwProcessId){confirmation=popup;break;}
    Sleep(50);
   }
   require(confirmation!=nullptr,"New profile did not ask before losing edits");
