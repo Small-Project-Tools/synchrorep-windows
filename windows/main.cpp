@@ -442,6 +442,7 @@ void loadProfile(int index){
  InvalidateRect(controls[IdModeMirror],nullptr,FALSE);
  suppressDirtyTracking=false;
  setFormDirty(false);
+ if(!busy)set(IdStatus,L"Profile loaded: "+toWide(p.name));
 }
 Profile fromForm(){
  Profile p; p.name=toUtf8(get(IdName));
@@ -1011,6 +1012,7 @@ void onCommand(int id){
   updateList();refreshSummary();updateModeDescription();showTab(MainTab::Configuration);
   suppressDirtyTracking=false;
   setFormDirty(false);
+  set(IdStatus,L"New profile - enter source and destination, then save.");
   SetFocus(controls[IdName]);break;
  case IdSave:{
   if(busy)throw std::runtime_error("Cannot edit profiles during synchronization");
